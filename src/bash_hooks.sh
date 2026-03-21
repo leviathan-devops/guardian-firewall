@@ -1,181 +1,284 @@
-#!/bin/bash
-#===============================================================================
-# GUARDIAN Bash Hooks - Intercept file operations
-#===============================================================================
-# These hooks are loaded into interactive bash shells to intercept
-# common file modification commands on protected files.
-#===============================================================================
+# Guardian Bash Hooks v2.0
+# Source this in .bashrc to enable file operation interception
+#
+# CRITICAL: User sovereignty is ALWAYS preserved.
+# User shell configs (.bashrc, .profile, etc.) are NEVER intercepted.
 
 GUARDIAN_DIR="$HOME/.guardrails"
-PROTECTED_QWEN_FILES=("$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md")
 
-# Function to check if file is protected (with symlink resolution)
+# Files that are protected from AI agents
+PROTECTED_FILES=(
+    "$HOME/.qwen/settings.json"
+    "$HOME/.qwen/config.json"
+    "$HOME/.qwen/QWEN.md"
+)
+
+# Files that are NEVER protected (user sovereignty)
+USER_SOVEREIGN_FILES=(
+    "$HOME/.bashrc"
+    "$HOME/.bash_aliases"
+    "$HOME/.bash_profile"
+    "$HOME/.bash_logout"
+    "$HOME/.profile"
+    "$HOME/.zshrc"
+    "$HOME/.zprofile"
+    "$HOME/.zshenv"
+    "$HOME/.zlogin"
+    "$HOME/.ssh"
+    "$HOME/.gnupg"
+)
+
+#===============================================================================
+# HELPER FUNCTIONS
+#===============================================================================
+
+# Check if a file is protected
 is_protected_file() {
     local file="$1"
     local resolved=""
     
-    # Resolve symlinks to prevent symlink attacks
+    # Resolve path
     if command -v realpath &>/dev/null; then
-        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
-    elif command -v readlink &>/dev/null; then
-        resolved=$(readlink -f "$file" 2>/dev/null) || resolved="$file"
+        resolved=$(realpath "$file" 2>/dev/null || echo "$file")
     else
         resolved="$file"
     fi
     
-    for protected in "${PROTECTED_QWEN_FILES[@]}"; do
-        local protected_resolved=""
-        if command -v realpath &>/dev/null; then
-            protected_resolved=$(realpath -m "$protected" 2>/dev/null) || protected_resolved="$protected"
-        else
-            protected_resolved="$protected"
+    # First check if it's user sovereign (user wins)
+    for sovereign in "${USER_SOVEREIGN_FILES[@]}"; do
+        if [[ "$resolved" == "$sovereign" ]] || [[ "$resolved" == "$sovereign/"* ]]; then
+            return 1  # NOT protected - user sovereign
         fi
-        
-        if [[ "$resolved" == "$protected_resolved" ]] || [[ "$resolved" == "$protected_resolved/"* ]]; then
+    done
+    
+    # Then check if it's in protected list
+    for protected in "${PROTECTED_FILES[@]}"; do
+        if [[ "$resolved" == "$protected" ]] || [[ "$resolved" == "$protected/"* ]]; then
+            return 0  # IS protected
+        fi
+    done
+    
+    return 1  # NOT protected
+}
+
+# Check if a file is user sovereign
+is_user_sovereign() {
+    local file="$1"
+    local resolved=""
+    
+    if command -v realpath &>/dev/null; then
+        resolved=$(realpath "$file" 2>/dev/null || echo "$file")
+    else
+        resolved="$file"
+    fi
+    
+    for sovereign in "${USER_SOVEREIGN_FILES[@]}"; do
+        if [[ "$resolved" == "$sovereign" ]] || [[ "$resolved" == "$sovereign/"* ]]; then
             return 0
         fi
     done
+    
     return 1
 }
 
-# Intercept common file modification commands
-_guardian_check() {
-    local cmd="$1"
-    local file="$2"
-    
-    if is_protected_file "$file"; then
-        echo "🚨 GUARDIAN: Protected file modification attempt!"
-        echo "   File: $file"
-        echo "   Command: $cmd"
-        echo ""
-        echo "   Agents MUST run: guardian-request $file '<reason>'"
-        echo "   Users can run: guardian-temp-unlock $file"
-        return 1
-    fi
-    return 0
-}
+#===============================================================================
+# COMMAND OVERRIDES
+#===============================================================================
 
-# Override built-in commands (readonly to prevent unsetting)
+# Override rm to protect files
 rm() {
     for arg in "$@"; do
-        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
+        # Skip options
+        [[ "$arg" == -* ]] && continue
+        
+        if is_user_sovereign "$arg"; then
+            # User file - let it through
+            :
+        elif is_protected_file "$arg"; then
             echo "🚨 GUARDIAN: Cannot delete protected file: $arg"
-            echo "   This file is protected by the Guardian system."
-            echo "   To temporarily unlock, run: guardian-temp-unlock $arg"
+            echo "   This file is protected from AI agent modification."
+            echo ""
+            echo "   If you are the human user:"
+            echo "     guardian-emergency unlock-all"
+            echo ""
+            echo "   If you are an AI agent:"
+            echo "     guardian request $arg 'Need to delete for <reason>'"
             return 1
         fi
     done
     command rm "$@"
 }
 
+# Override cp to protect destinations
 cp() {
     local args=("$@")
     local last_arg="${args[-1]}"
-    if is_protected_file "$last_arg"; then
-        echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
-        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
-        return 1
+    
+    # Handle multiple destination case (cp file1 file2 dir/)
+    if [[ -d "$last_arg" ]]; then
+        # Check each source
+        for arg in "$@"; do
+            [[ "$arg" == -* ]] && continue
+            [[ "$arg" == "$last_arg" ]] && continue
+            
+            if is_protected_file "$arg" && ! is_user_sovereign "$arg"; then
+                echo "🚨 GUARDIAN: Protected file copy blocked"
+                echo "   Source: $arg"
+                return 1
+            fi
+        done
+    else
+        # Single file case
+        if is_user_sovereign "$last_arg"; then
+            # User file - let it through
+            :
+        elif is_protected_file "$last_arg"; then
+            echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
+            echo "   Run: guardian request $last_arg '<reason>'"
+            return 1
+        fi
     fi
+    
     command cp "$@"
 }
 
+# Override mv to protect destinations
 mv() {
     local args=("$@")
     local last_arg="${args[-1]}"
-    if is_protected_file "$last_arg"; then
+    
+    # Check destination
+    if is_user_sovereign "$last_arg"; then
+        # User file - let it through
+        :
+    elif is_protected_file "$last_arg"; then
         echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
-        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
+        echo "   Run: guardian request $last_arg '<reason>'"
         return 1
     fi
+    
     command mv "$@"
 }
 
-cat() {
-    if [[ "$*" == *">"* ]]; then
-        local in_redirect=0
-        for arg in "$@"; do
-            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
-                in_redirect=1
-            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
-                echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-                echo "   Use: guardian-request $arg '<reason>'"
-                return 1
-            else
-                in_redirect=0
-            fi
-        done
-    fi
-    command cat "$@"
-}
-
+# Override tee
 tee() {
     for arg in "$@"; do
-        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
+        [[ "$arg" == -* ]] && continue
+        
+        if is_user_sovereign "$arg"; then
+            # User file - let it through
+            :
+        elif is_protected_file "$arg"; then
             echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-            echo "   Use: guardian-request $arg '<reason>'"
+            echo "   Run: guardian request $arg '<reason>'"
             return 1
         fi
     done
     command tee "$@"
 }
 
-echo() {
-    if [[ "$*" == *">"* ]]; then
-        local in_redirect=0
+# Override cat for write operations (cat > file)
+cat() {
+    # Check for write redirection
+    if [[ "$*" == *">"* ]] || [[ "$*" == *">>"* ]]; then
+        # Extract file argument (last non-option argument before >)
         for arg in "$@"; do
-            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
-                in_redirect=1
-            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
+            [[ "$arg" == -* ]] && continue
+            [[ "$arg" == ">" ]] || [[ "$arg" == ">>" ]] && continue
+            
+            if is_user_sovereign "$arg"; then
+                # User file - let it through
+                :
+            elif is_protected_file "$arg"; then
                 echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-                echo "   Use: guardian-request $arg '<reason>'"
+                echo "   Run: guardian request $arg '<reason>'"
                 return 1
-            else
-                in_redirect=0
             fi
+        done
+    fi
+    command cat "$@"
+}
+
+# Override echo for write operations (echo "text" > file)
+echo() {
+    if [[ "$*" == *">"* ]] || [[ "$*" == *">>"* ]]; then
+        # Extract file argument
+        local prev_arg=""
+        for arg in "$@"; do
+            if [[ "$prev_arg" == ">" ]] || [[ "$prev_arg" == ">>" ]]; then
+                if is_user_sovereign "$arg"; then
+                    # User file - let it through
+                    :
+                elif is_protected_file "$arg"; then
+                    echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
+                    echo "   Run: guardian request $arg '<reason>'"
+                    return 1
+                fi
+            fi
+            prev_arg="$arg"
         done
     fi
     command echo "$@"
 }
 
-# CRITICAL: Override sudo to intercept dangerous commands
-# This is a FUNCTION, not an alias, to prevent bypass via 'command sudo'
-sudo() {
-    local cmd="$*"
+#===============================================================================
+# SUDO WRAPPER (optional - intercepts dangerous sudo commands)
+#===============================================================================
+
+# Only override sudo if wrapper exists
+if [ -f "$GUARDIAN_DIR/bin/sudo" ]; then
+    # This creates an alias for sudo
+    # Note: Users can bypass with /usr/bin/sudo if needed
+    alias sudo="$GUARDIAN_DIR/bin/sudo"
+fi
+
+#===============================================================================
+# EMERGENCY COMMAND (always available)
+#===============================================================================
+
+# Quick emergency function (in case /usr/bin/guardian-emergency isn't available)
+guardian-recover() {
+    echo "🔓 Unlocking all user files..."
     
-    # Check for dangerous patterns that should be blocked
-    local DANGEROUS_PATTERNS=(
-        "chattr[[:space:]]+-[a-zA-Z]*i"
-        "chattr[[:space:]]+-I"
-        "rm[[:space:]]+-rf.*\.qwen"
-        "rm[[:space:]]+-rf.*\.guardrails"
-        "rm.*settings\.json"
-        "rm.*config\.json"
-        "rm.*guardian"
+    USER_FILES=(
+        "$HOME/.bashrc"
+        "$HOME/.bash_aliases"
+        "$HOME/.bash_profile"
+        "$HOME/.profile"
+        "$HOME/.zshrc"
     )
     
-    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
-        if echo "$cmd" | grep -qE "$pattern"; then
-            echo "🚨 GUARDIAN: Dangerous command detected!"
-            echo "   Command: sudo $cmd"
-            echo ""
-            echo "   This command requires EXPLICIT user approval."
-            echo ""
-            echo "   Agents: Run 'guardian-request <file> <reason>'"
-            echo "   Users:  Run 'guardian-temp-unlock <file>'"
-            echo ""
-            return 1
+    for f in "${USER_FILES[@]}"; do
+        if [ -f "$f" ]; then
+            /usr/bin/sudo chattr -i "$f" 2>/dev/null && \
+                echo "  ✓ Unlocked: $f" || true
         fi
     done
     
-    # Not a dangerous command, pass through to real sudo
-    command sudo "$@"
+    echo ""
+    echo "✅ User files should now be editable."
+    echo "   If still locked, run: guardian-emergency unlock-all"
 }
 
-# CRITICAL: Make all hook functions readonly to prevent unsetting
-# This must be done AFTER all functions are defined
-readonly -f is_protected_file _guardian_check rm cp mv cat tee echo sudo 2>/dev/null || true
+#===============================================================================
+# STARTUP MESSAGE
+#===============================================================================
 
-# Show warning on shell start (only once per session)
-if [ -z "$GUARDIAN_WARNING_SHOWN" ]; then
-    export GUARDIAN_WARNING_SHOWN=1
+# Show guardian status once per session (optional - can be disabled)
+if [ -z "$GUARDIAN_QUIET" ] && [ -z "$GUARDIAN_MESSAGE_SHOWN" ]; then
+    export GUARDIAN_MESSAGE_SHOWN=1
+    
+    # Check if any protected files are actually protected
+    PROTECTED_COUNT=0
+    for f in "${PROTECTED_FILES[@]}"; do
+        if [ -f "$f" ]; then
+            if command lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 | grep -q 'i'; then
+                ((PROTECTED_COUNT++))
+            fi
+        fi
+    done
+    
+    if [ $PROTECTED_COUNT -gt 0 ]; then
+        echo "🔒 Guardian: $PROTECTED_COUNT files protected | guardian status for details"
+    fi
 fi

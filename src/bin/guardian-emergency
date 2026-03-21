@@ -1,0 +1,246 @@
+#!/bin/bash
+#===============================================================================
+# GUARDIAN EMERGENCY OVERRIDE - Surgical & Targeted
+#===============================================================================
+# This command ALWAYS works for the human user.
+# 
+# DESIGN PHILOSOPHY:
+# - Surgical: Only touches specific files that need unlocking
+# - Targeted: Doesn't do broad system-wide changes
+# - Simple: Easy to understand and use
+# - Safe: Won't break anything else
+#===============================================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Surgical unlock - unlocks only the specific file requested
+unlock_file() {
+    local file="$1"
+    
+    if [ ! -e "$file" ]; then
+        echo -e "  ${YELLOW}⊘ Not found: $file${NC}"
+        return 1
+    fi
+    
+    # Check if actually locked
+    local attrs=$(/usr/bin/lsattr -d "$file" 2>/dev/null | cut -d' ' -f1 || echo "")
+    if ! echo "$attrs" | grep -q 'i'; then
+        echo -e "  ${BLUE}○ Already unlocked: $file${NC}"
+        return 0
+    fi
+    
+    # Unlock it
+    if /usr/bin/sudo chattr -i "$file" 2>/dev/null; then
+        echo -e "  ${GREEN}✓ Unlocked: $file${NC}"
+        return 0
+    else
+        echo -e "  ${RED}✗ Failed: $file${NC}"
+        return 1
+    fi
+}
+
+case "${1:-}" in
+    #---------------------------------------------------------------------------
+    # TARGETED: Unlock a specific file
+    #---------------------------------------------------------------------------
+    unlock)
+        if [ -z "${2:-}" ]; then
+            echo -e "${RED}Usage: guardian-emergency unlock <file>${NC}"
+            echo ""
+            echo "Examples:"
+            echo "  guardian-emergency unlock ~/.qwen/settings.json"
+            echo "  guardian-emergency unlock ~/.bashrc"
+            exit 1
+        fi
+        
+        file=$(realpath "$2" 2>/dev/null || echo "$2")
+        echo -e "${YELLOW}Surgical unlock: $file${NC}"
+        unlock_file "$file"
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # TARGETED: Unlock agent files only
+    #---------------------------------------------------------------------------
+    unlock-agent)
+        echo -e "${YELLOW}Unlocking agent files (targeted)...${NC}"
+        
+        # Only unlock qwen config files - nothing else
+        unlock_file "$HOME/.qwen/settings.json"
+        unlock_file "$HOME/.qwen/config.json"
+        unlock_file "$HOME/.qwen/QWEN.md"
+        
+        echo ""
+        echo -e "${GREEN}✅ Agent files unlocked${NC}"
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # TARGETED: Unlock user files only
+    #---------------------------------------------------------------------------
+    unlock-user)
+        echo -e "${YELLOW}Unlocking user files (targeted)...${NC}"
+        
+        # Only unlock if they're actually locked
+        for f in "$HOME/.bashrc" "$HOME/.bash_aliases" "$HOME/.bash_profile" \
+                 "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "")
+                if echo "$attrs" | grep -q 'i'; then
+                    unlock_file "$f"
+                fi
+            fi
+        done
+        
+        echo ""
+        echo -e "${GREEN}✅ User files recovered${NC}"
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # TARGETED: Unlock guardian files only
+    #---------------------------------------------------------------------------
+    unlock-guardian)
+        echo -e "${YELLOW}Unlocking Guardian files (targeted)...${NC}"
+        
+        unlock_file "$HOME/.guardrails/guardian"
+        unlock_file "$HOME/.guardrails/bin/sudo"
+        unlock_file "$HOME/.guardrails/guardian-nlp.py"
+        unlock_file "$HOME/.guardrails/unlock-tracker.py"
+        
+        echo ""
+        echo -e "${GREEN}✅ Guardian files unlocked${NC}"
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # CONVENIENCE: Unlock all protected (but not broad system-wide)
+    #---------------------------------------------------------------------------
+    unlock-all)
+        echo -e "${YELLOW}Unlocking all protected files...${NC}"
+        echo ""
+        
+        # Agent files
+        echo -e "${BLUE}Agent files:${NC}"
+        unlock_file "$HOME/.qwen/settings.json"
+        unlock_file "$HOME/.qwen/config.json"
+        unlock_file "$HOME/.qwen/QWEN.md"
+        
+        # Guardian files
+        echo ""
+        echo -e "${BLUE}Guardian files:${NC}"
+        unlock_file "$HOME/.guardrails/guardian"
+        unlock_file "$HOME/.guardrails/bin/sudo"
+        unlock_file "$HOME/.guardrails/guardian-nlp.py"
+        unlock_file "$HOME/.guardrails/unlock-tracker.py"
+        
+        # User files (only if accidentally locked)
+        echo ""
+        echo -e "${BLUE}User files (if locked):${NC}"
+        for f in "$HOME/.bashrc" "$HOME/.bash_aliases" "$HOME/.profile"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "")
+                if echo "$attrs" | grep -q 'i'; then
+                    unlock_file "$f"
+                fi
+            fi
+        done
+        
+        echo ""
+        echo -e "${GREEN}✅ All protected files unlocked${NC}"
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # TARGETED: Lock a specific file
+    #---------------------------------------------------------------------------
+    lock)
+        if [ -z "${2:-}" ]; then
+            echo -e "${RED}Usage: guardian-emergency lock <file>${NC}"
+            exit 1
+        fi
+        
+        file=$(realpath "$2" 2>/dev/null || echo "$2")
+        echo -e "${YELLOW}Locking: $file${NC}"
+        
+        if /usr/bin/sudo chattr +i "$file" 2>/dev/null; then
+            echo -e "${GREEN}✓ Locked: $file${NC}"
+        else
+            echo -e "${RED}✗ Failed: $file${NC}"
+        fi
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # STATUS CHECK
+    #---------------------------------------------------------------------------
+    status)
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}             GUARDIAN STATUS                                 ${NC}"
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo ""
+        
+        echo -e "${BLUE}Agent Files:${NC}"
+        for f in "$HOME/.qwen/settings.json" "$HOME/.qwen/config.json"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "----")
+                if echo "$attrs" | grep -q 'i'; then
+                    echo -e "  🔒 Locked:   $f"
+                else
+                    echo -e "  🔓 Unlocked: $f"
+                fi
+            fi
+        done
+        
+        echo ""
+        echo -e "${BLUE}User Files (should be unlocked):${NC}"
+        for f in "$HOME/.bashrc" "$HOME/.profile"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "----")
+                if echo "$attrs" | grep -q 'i'; then
+                    echo -e "  ${RED}⚠ LOCKED: $f${NC}"
+                else
+                    echo -e "  ${GREEN}✓ OK: $f${NC}"
+                fi
+            fi
+        done
+        
+        echo ""
+        echo -e "${BLUE}Guardian Files:${NC}"
+        if [ -f "$HOME/.guardrails/guardian" ]; then
+            attrs=$(/usr/bin/lsattr -d "$HOME/.guardrails/guardian" 2>/dev/null | cut -d' ' -f1 || echo "----")
+            if echo "$attrs" | grep -q 'i'; then
+                echo -e "  🔒 Protected"
+            else
+                echo -e "  🔓 Unprotected"
+            fi
+        fi
+        ;;
+    
+    #---------------------------------------------------------------------------
+    # HELP
+    #---------------------------------------------------------------------------
+    *)
+        echo ""
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║        GUARDIAN EMERGENCY - Surgical Override           ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "Usage: guardian-emergency <command> [file]"
+        echo ""
+        echo -e "${GREEN}Targeted Commands (surgical, precise):${NC}"
+        echo "  unlock <file>        Unlock a specific file only"
+        echo "  lock <file>          Lock a specific file"
+        echo "  unlock-agent         Unlock agent files only"
+        echo "  unlock-user          Unlock user shell configs only"
+        echo "  unlock-guardian      Unlock guardian files only"
+        echo ""
+        echo -e "${YELLOW}Convenience Commands:${NC}"
+        echo "  unlock-all           Unlock all protected files"
+        echo "  status               Check protection status"
+        echo ""
+        echo -e "${CYAN}Examples:${NC}"
+        echo "  guardian-emergency unlock ~/.qwen/settings.json"
+        echo "  guardian-emergency unlock-user"
+        echo "  guardian-emergency status"
+        echo ""
+        ;;
+esac

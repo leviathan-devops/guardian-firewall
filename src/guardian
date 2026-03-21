@@ -1,242 +1,829 @@
 #!/bin/bash
 #===============================================================================
-# GUARDIAN - Unbreakable Guardrail System for Qwen Code
-# Version: 1.0.3-beta (User Sovereignty Fixed)
+# GUARDIAN v2.0 - Safe File Protection for AI Agents
 #===============================================================================
-# CRITICAL SAFETY RULES:
-# 1. NEVER protect user shell configs (.bashrc, .profile, etc.)
-# 2. NEVER protect SSH keys, GPG keys, or security files
-# 3. ALWAYS allow human user to override
-# 4. Emergency override MUST always work
+# Protects AI agent configuration files from accidental modification.
+#
+# CRITICAL: This version includes USER SOVEREIGNTY protections.
+# The human user ALWAYS has final control over their device.
+#
+# Golden Rules:
+# 1. User shell configs are NEVER protected
+# 2. Emergency override ALWAYS works
+# 3. Recovery instructions exist OUTSIDE protected area
 #===============================================================================
 
 set -e
 
-# Configuration
+#===============================================================================
+# CONFIGURATION
+#===============================================================================
+
 GUARDIAN_DIR="$HOME/.guardrails"
-PROTECTED_DIR="$HOME/.qwen"
 APPROVAL_QUEUE="$GUARDIAN_DIR/approval_queue"
 APPROVAL_LOG="$GUARDIAN_DIR/approval_log"
-GUARDIAN_LOCK="$GUARDIAN_DIR/.guardian.lock"
-SESSION_FILE="$GUARDIAN_DIR/.session_token"
-WHITELIST_FILE="$GUARDIAN_DIR/.whitelist"
+RECOVERY_FILE="$HOME/GUARDIAN_RECOVERY_INSTRUCTIONS.txt"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
 #===============================================================================
-# USER SOVEREIGNTY - NEVER PROTECT THESE FILES
+# PROTECTED FILES - AGENT SPECIFIC ONLY
 #===============================================================================
-# These files are ALWAYS editable by the human user
-# Guardian CANNOT protect them, even if explicitly requested
-USER_SOVEREIGN_FILES=(
-    "$HOME/.bashrc"
-    "$HOME/.bash_aliases"
-    "$HOME/.bash_profile"
-    "$HOME/.profile"
-    "$HOME/.zshrc"
-    "$HOME/.zprofile"
-    "$HOME/.ssh/"
-    "$HOME/.gnupg/"
-    "$HOME/.config/autostart/"
-)
+# IMPORTANT: User files (.bashrc, .profile, etc.) are NEVER protected.
+# This ensures the human user always has control over their device.
 
-# Files that Guardian CAN protect (agent-specific only)
 PROTECTED_FILES=(
     "$HOME/.qwen/settings.json"
     "$HOME/.qwen/config.json"
     "$HOME/.qwen/QWEN.md"
-    "$HOME/.guardrails/"
 )
 
-# Function to check if file is user-sovereign (NEVER protect)
-is_user_sovereign_file() {
-    local file="$1"
-    local resolved=""
-    
-    # Resolve to absolute path
-    if command -v realpath &>/dev/null; then
-        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
-    else
-        resolved="$file"
-    fi
-    
-    # Check against user sovereign list
-    for sovereign in "${USER_SOVEREIGN_FILES[@]}"; do
-        if [[ "$resolved" == "$sovereign" ]] || [[ "$resolved" == "$sovereign/"* ]]; then
-            return 0
-        fi
-    done
-    
-    return 1
-}
+# Guardian self-protection files
+GUARDIAN_SELF_PROTECT=(
+    "$GUARDIAN_DIR/guardian"
+    "$GUARDIAN_DIR/bin/sudo"
+    "$GUARDIAN_DIR/guardian-nlp.py"
+    "$GUARDIAN_DIR/unlock-tracker.py"
+)
 
-# Function to check if file is protected
-is_protected_file() {
-    local file="$1"
-    local resolved=""
-    
-    # FIRST: Check if it's a user sovereign file (NEVER protect)
-    if is_user_sovereign_file "$file"; then
-        return 1
-    fi
-    
-    # Resolve symlinks
-    if command -v realpath &>/dev/null; then
-        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
-    else
-        resolved="$file"
-    fi
-    
-    # Check against protected list
-    for protected in "${PROTECTED_FILES[@]}"; do
-        if [[ "$resolved" == "$protected" ]] || [[ "$resolved" == "$protected/"* ]]; then
-            return 0
-        fi
-    done
-    
-    return 1
-}
+#===============================================================================
+# USER SOVEREIGNTY - FILES THAT ARE NEVER PROTECTED
+#===============================================================================
+# These files can NEVER be protected by Guardian, even if user tries.
 
-# Intercept common file modification commands
-_guardian_check() {
-    local cmd="$1"
+USER_SOVEREIGN_PATTERNS=(
+    ".bashrc"
+    ".bash_aliases"
+    ".bash_profile"
+    ".bash_logout"
+    ".profile"
+    ".zshrc"
+    ".zprofile"
+    ".zshenv"
+    ".zlogin"
+    ".ssh"
+    ".gnupg"
+    ".config/autostart"
+    ".config/systemd"
+    ".local/share/systemd"
+    ".pam_environment"
+    ".xinitrc"
+    ".xsession"
+    ".xprofile"
+)
+
+#===============================================================================
+# UTILITY FUNCTIONS
+#===============================================================================
+
+log_action() {
+    local action="$1"
     local file="$2"
+    local reason="${3:-}"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "$timestamp|$(whoami)|$action|$file|$reason" >> "$APPROVAL_LOG"
+}
+
+check_user_sovereignty() {
+    local file="$1"
+    local resolved=""
     
-    if is_protected_file "$file"; then
-        echo "🚨 GUARDIAN: Protected file modification attempt!"
-        echo "   File: $file"
-        echo "   Command: $cmd"
+    # Resolve path
+    if command -v realpath &>/dev/null; then
+        resolved=$(realpath "$file" 2>/dev/null || echo "$file")
+    else
+        resolved="$file"
+    fi
+    
+    # Check against sovereignty patterns
+    for pattern in "${USER_SOVEREIGN_PATTERNS[@]}"; do
+        if [[ "$resolved" == *"$pattern"* ]] || [[ "$resolved" == "$HOME/$pattern"* ]]; then
+            return 0  # File is user sovereign
+        fi
+    done
+    
+    return 1  # File is not user sovereign
+}
+
+is_protected() {
+    local file="$1"
+    local attrs=$(/usr/bin/lsattr -d "$file" 2>/dev/null | cut -d' ' -f1 || echo "")
+    
+    if echo "$attrs" | grep -q 'i'; then
+        return 0  # File is protected
+    fi
+    return 1  # File is not protected
+}
+
+#===============================================================================
+# INITIALIZATION
+#===============================================================================
+
+guardian_init() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║        GUARDIAN v2.0 - Safe File Protection              ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Create directories
+    mkdir -p "$GUARDIAN_DIR"
+    mkdir -p "$GUARDIAN_DIR/backups"
+    mkdir -p "$GUARDIAN_DIR/approval_queue"
+    mkdir -p "$GUARDIAN_DIR/logs"
+    mkdir -p "$GUARDIAN_DIR/bin"
+    
+    # Initialize approval log
+    if [ ! -f "$APPROVAL_LOG" ]; then
+        echo "timestamp|user|action|file|reason" > "$APPROVAL_LOG"
+    fi
+    
+    # Install emergency override
+    install_emergency_override
+    
+    # Install recovery instructions
+    install_recovery_instructions
+    
+    # Protect agent files
+    echo -e "${BLUE}[*] Protecting agent configuration files...${NC}"
+    
+    for file in "${PROTECTED_FILES[@]}"; do
+        if [ -f "$file" ]; then
+            # Verify it's not user sovereign
+            if check_user_sovereignty "$file"; then
+                echo -e "${RED}  ⚠ SKIPPED (user sovereign): $file${NC}"
+                continue
+            fi
+            
+            /usr/bin/sudo chattr +i "$file" 2>/dev/null && \
+                echo -e "${GREEN}  ✓ Protected: $file${NC}" || \
+                echo -e "${YELLOW}  ⚠ Could not protect: $file${NC}"
+        fi
+    done
+    
+    # Protect guardian itself
+    echo ""
+    echo -e "${BLUE}[*] Protecting Guardian files...${NC}"
+    
+    for file in "${GUARDIAN_SELF_PROTECT[@]}"; do
+        if [ -f "$file" ]; then
+            /usr/bin/sudo chattr +i "$file" 2>/dev/null && \
+                echo -e "${GREEN}  ✓ Protected: $file${NC}" || true
+        fi
+    done
+    
+    echo ""
+    echo -e "${GREEN}✅ GUARDIAN initialized successfully${NC}"
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}  PROTECTED FILES (agents need approval):${NC}"
+    for f in "${PROTECTED_FILES[@]}"; do
+        echo -e "${YELLOW}    • $f${NC}"
+    done
+    echo ""
+    echo -e "${GREEN}  USER SOVEREIGN FILES (always editable):${NC}"
+    echo -e "${GREEN}    • ~/.bashrc, ~/.profile, ~/.zshrc${NC}"
+    echo -e "${GREEN}    • ~/.ssh, ~/.gnupg${NC}"
+    echo ""
+    echo -e "${CYAN}  EMERGENCY OVERRIDE:${NC}"
+    echo -e "${CYAN}    • guardian-emergency unlock-all${NC}"
+    echo -e "${CYAN}    • ~/GUARDIAN_RECOVERY_INSTRUCTIONS.txt${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+#===============================================================================
+# EMERGENCY OVERRIDE INSTALLATION
+#===============================================================================
+
+install_emergency_override() {
+    local emergency_script="/usr/bin/guardian-emergency"
+    
+    echo -e "${BLUE}[*] Installing emergency override...${NC}"
+    
+    # Create the emergency script
+    /usr/bin/sudo tee "$emergency_script" > /dev/null << 'EMERGENCY_SCRIPT'
+#!/bin/bash
+#===============================================================================
+# GUARDIAN EMERGENCY OVERRIDE
+#===============================================================================
+# This command ALWAYS works for the human user.
+# It is installed in /usr/bin/ so it works even if ~/.guardrails is broken.
+#===============================================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+case "${1:-}" in
+    unlock-all)
+        echo -e "${YELLOW}Unlocking all protected files...${NC}"
+        
+        # Unlock agent files
+        for f in "$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md"; do
+            if [ -f "$f" ]; then
+                /usr/bin/sudo chattr -i "$f" 2>/dev/null && \
+                    echo -e "${GREEN}  ✓ Unlocked: $f${NC}" || true
+            fi
+        done
+        
+        # Unlock guardian files
+        for f in "$HOME/.guardrails/guardian" "$HOME/.guardrails/bin/sudo" \
+                 "$HOME/.guardrails/guardian-nlp.py" "$HOME/.guardrails/unlock-tracker.py"; do
+            if [ -f "$f" ]; then
+                /usr/bin/sudo chattr -i "$f" 2>/dev/null && \
+                    echo -e "${GREEN}  ✓ Unlocked: $f${NC}" || true
+            fi
+        done
+        
+        # CRITICAL: Also unlock any user files that might have been accidentally protected
+        for f in "$HOME/.bashrc" "$HOME/.bash_aliases" "$HOME/.bash_profile" \
+                 "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "")
+                if echo "$attrs" | grep -q 'i'; then
+                    /usr/bin/sudo chattr -i "$f" 2>/dev/null && \
+                        echo -e "${GREEN}  ✓ RECOVERED user file: $f${NC}" || true
+                fi
+            fi
+        done
+        
         echo ""
-        echo "   Agents MUST run: guardian-request $file '<reason>'"
-        echo "   Users can run: guardian-temp-unlock $file"
-        echo "   Emergency: guardian-emergency unlock-all"
-        return 1
-    fi
-    return 0
-}
-
-# Override built-in commands (readonly to prevent unsetting)
-rm() {
-    for arg in "$@"; do
-        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
-            echo "🚨 GUARDIAN: Cannot delete protected file: $arg"
-            echo "   This file is protected by the Guardian system."
-            echo "   To temporarily unlock, run: guardian-temp-unlock $arg"
-            echo "   Emergency: guardian-emergency unlock-all"
-            return 1
+        echo -e "${GREEN}✅ All files unlocked${NC}"
+        ;;
+        
+    disable)
+        echo -e "${RED}Disabling Guardian entirely...${NC}"
+        
+        # Unlock everything
+        /usr/bin/guardian-emergency unlock-all
+        
+        # Remove bash hooks from .bashrc
+        if [ -f "$HOME/.bashrc" ]; then
+            /usr/bin/sudo chattr -i "$HOME/.bashrc" 2>/dev/null || true
+            sed -i '/guardrails\/bash_hooks/d' "$HOME/.bashrc" 2>/dev/null || true
+            sed -i '/Guardian bash hooks/d' "$HOME/.bashrc" 2>/dev/null || true
+            sed -i '/Guardian sudo wrapper/d' "$HOME/.bashrc" 2>/dev/null || true
         fi
-    done
-    command rm "$@"
-}
-
-cp() {
-    local args=("$@")
-    local last_arg="${args[-1]}"
-    if is_protected_file "$last_arg"; then
-        echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
-        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
-        echo "   Emergency: guardian-emergency unlock-all"
-        return 1
-    fi
-    command cp "$@"
-}
-
-mv() {
-    local args=("$@")
-    local last_arg="${args[-1]}"
-    if is_protected_file "$last_arg"; then
-        echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
-        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
-        echo "   Emergency: guardian-emergency unlock-all"
-        return 1
-    fi
-    command mv "$@"
-}
-
-cat() {
-    if [[ "$*" == *">"* ]]; then
-        local in_redirect=0
-        for arg in "$@"; do
-            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
-                in_redirect=1
-            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
-                echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-                echo "   Use: guardian-request $arg '<reason>'"
-                echo "   Emergency: guardian-emergency unlock-all"
-                return 1
-            else
-                in_redirect=0
+        
+        echo ""
+        echo -e "${GREEN}✅ Guardian disabled${NC}"
+        echo -e "${YELLOW}Run 'guardian init' to re-enable${NC}"
+        ;;
+        
+    status)
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}             GUARDIAN STATUS CHECK                         ${NC}"
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo ""
+        
+        echo -e "${BLUE}Protected Files:${NC}"
+        for f in "$HOME/.qwen/settings.json" "$HOME/.qwen/config.json"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "----")
+                if echo "$attrs" | grep -q 'i'; then
+                    echo -e "  🔒 LOCKED:   $f"
+                else
+                    echo -e "  🔓 UNLOCKED: $f"
+                fi
             fi
         done
-    fi
-    command cat "$@"
-}
-
-tee() {
-    for arg in "$@"; do
-        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
-            echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-            echo "   Use: guardian-request $arg '<reason>'"
-            echo "   Emergency: guardian-emergency unlock-all"
-            return 1
-        fi
-    done
-    command tee "$@"
-}
-
-echo() {
-    if [[ "$*" == *">"* ]]; then
-        local in_redirect=0
-        for arg in "$@"; do
-            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
-                in_redirect=1
-            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
-                echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
-                echo "   Use: guardian-request $arg '<reason>'"
-                echo "   Emergency: guardian-emergency unlock-all"
-                return 1
-            else
-                in_redirect=0
+        
+        echo ""
+        echo -e "${BLUE}User Sovereignty Check:${NC}"
+        for f in "$HOME/.bashrc" "$HOME/.profile"; do
+            if [ -f "$f" ]; then
+                attrs=$(/usr/bin/lsattr -d "$f" 2>/dev/null | cut -d' ' -f1 || echo "----")
+                if echo "$attrs" | grep -q 'i'; then
+                    echo -e "  ${RED}⚠ LOCKED (should not be!): $f${NC}"
+                else
+                    echo -e "  ${GREEN}✓ User editable: $f${NC}"
+                fi
             fi
         done
-    fi
-    command echo "$@"
+        
+        echo ""
+        echo -e "${BLUE}Guardian Files:${NC}"
+        if [ -f "$HOME/.guardrails/guardian" ]; then
+            attrs=$(/usr/bin/lsattr -d "$HOME/.guardrails/guardian" 2>/dev/null | cut -d' ' -f1 || echo "----")
+            if echo "$attrs" | grep -q 'i'; then
+                echo -e "  🔒 Protected: $HOME/.guardrails/guardian"
+            else
+                echo -e "  🔓 Unprotected: $HOME/.guardrails/guardian"
+            fi
+        fi
+        ;;
+        
+    recover-user-files)
+        echo -e "${YELLOW}Recovering all user files...${NC}"
+        
+        USER_FILES=(
+            "$HOME/.bashrc"
+            "$HOME/.bash_aliases"
+            "$HOME/.bash_profile"
+            "$HOME/.bash_logout"
+            "$HOME/.profile"
+            "$HOME/.zshrc"
+            "$HOME/.zprofile"
+            "$HOME/.zshenv"
+            "$HOME/.zlogin"
+        )
+        
+        for f in "${USER_FILES[@]}"; do
+            if [ -f "$f" ]; then
+                /usr/bin/sudo chattr -i "$f" 2>/dev/null && \
+                    echo -e "${GREEN}  ✓ Recovered: $f${NC}" || true
+            fi
+        done
+        
+        echo ""
+        echo -e "${GREEN}✅ All user files should now be editable${NC}"
+        ;;
+        
+    *)
+        echo ""
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║        GUARDIAN EMERGENCY OVERRIDE                       ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "Usage: guardian-emergency <command>"
+        echo ""
+        echo "Commands:"
+        echo "  unlock-all         Unlock all protected files"
+        echo "  disable            Disable Guardian entirely"
+        echo "  status             Check protection status"
+        echo "  recover-user-files Force unlock user shell configs"
+        echo ""
+        echo -e "${GREEN}This command ALWAYS works for the human user.${NC}"
+        echo -e "${GREEN}It uses /usr/bin/sudo directly to bypass any Guardian wrappers.${NC}"
+        echo ""
+        ;;
+esac
+EMERGENCY_SCRIPT
+    
+    /usr/bin/sudo chmod +x "$emergency_script"
+    echo -e "${GREEN}  ✓ Emergency override installed: $emergency_script${NC}"
 }
 
-# CRITICAL: Override sudo to intercept dangerous commands
-# This is a FUNCTION, not an alias, to prevent bypass via 'command sudo'
-sudo() {
-    local cmd="$*"
+#===============================================================================
+# RECOVERY INSTRUCTIONS
+#===============================================================================
+
+install_recovery_instructions() {
+    echo -e "${BLUE}[*] Creating recovery instructions...${NC}"
     
-    # Check for dangerous patterns that should be blocked
-    local DANGEROUS_PATTERNS=(
-        "chattr[[:space:]]+-[a-zA-Z]*i.*\.qwen"
-        "chattr[[:space:]]+-I.*\.qwen"
-        "rm[[:space:]]+-rf.*\.qwen"
-        "rm[[:space:]]+-rf.*\.guardrails"
-    )
+    cat > "$RECOVERY_FILE" << 'RECOVERY_EOF'
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    GUARDIAN EMERGENCY RECOVERY                                ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  IF YOU ARE LOCKED OUT OF YOUR OWN FILES, READ THIS ⚠️
+
+═══════════════════════════════════════════════════════════════════════════════
+QUICK FIXES
+═══════════════════════════════════════════════════════════════════════════════
+
+OPTION 1: Emergency Override Command
+─────────────────────────────────────
+    guardian-emergency unlock-all
+
+This unlocks all protected files. You can then edit them normally.
+
+
+OPTION 2: Recover User Files Only
+──────────────────────────────────
+    guardian-emergency recover-user-files
+
+This unlocks ONLY your shell config files (.bashrc, .profile, etc.)
+
+
+OPTION 3: Disable Guardian Entirely
+───────────────────────────────────
+    guardian-emergency disable
+
+This disables all Guardian protection. Run 'guardian init' to re-enable.
+
+
+OPTION 4: Manual Override (if above don't work)
+───────────────────────────────────────────────
+    /usr/bin/sudo chattr -i ~/.qwen/settings.json
+    /usr/bin/sudo chattr -i ~/.qwen/config.json
+    /usr/bin/sudo chattr -i ~/.guardrails/*
+
+Note: Use /usr/bin/sudo (full path) to bypass Guardian wrapper.
+
+
+OPTION 5: Recovery from Live USB (last resort)
+──────────────────────────────────────────────
+1. Boot from a Linux Live USB
+2. Mount your drive: sudo mount /dev/sda1 /mnt
+3. Unlock files: sudo chattr -i /mnt/home/YOURUSER/.qwen/*
+4. Reboot normally
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT GUARDIAN PROTECTS
+═══════════════════════════════════════════════════════════════════════════════
+
+Protected (need approval to modify):
+    • ~/.qwen/settings.json   - AI agent configuration
+    • ~/.qwen/config.json     - AI agent API credentials
+    • ~/.qwen/QWEN.md         - AI agent guidelines
+    • ~/.guardrails/*         - Guardian system files
+
+NOT Protected (you can always edit):
+    • ~/.bashrc, ~/.profile, ~/.zshrc - Your shell configs
+    • ~/.ssh, ~/.gnupg                - Your security files
+    • Everything else in your home    - Your files
+
+═══════════════════════════════════════════════════════════════════════════════
+WHY DID THIS HAPPEN?
+═══════════════════════════════════════════════════════════════════════════════
+
+Guardian protects AI agent files from accidental modification.
+Sometimes this can accidentally block the human user.
+
+If you were blocked from editing your OWN files (not agent files),
+this is a bug. The user sovereignty check should have prevented this.
+
+Please report this issue so it can be fixed.
+
+═══════════════════════════════════════════════════════════════════════════════
+THIS FILE
+═══════════════════════════════════════════════════════════════════════════════
+
+This file (~/GUARDIAN_RECOVERY_INSTRUCTIONS.txt) is NEVER protected.
+You can always read and edit it.
+
+Keep this file in your home directory for emergencies.
+
+═══════════════════════════════════════════════════════════════════════════════
+RECOVERY_EOF
     
-    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
-        if echo "$cmd" | grep -qE "$pattern"; then
-            echo "🚨 GUARDIAN: Dangerous command detected!"
-            echo "   Command: sudo $cmd"
-            echo ""
-            echo "   This command requires EXPLICIT user approval."
-            echo ""
-            echo "   Agents: Run 'guardian-request <file> <reason>'"
-            echo "   Users:  Run 'guardian-emergency unlock-all'"
-            echo ""
-            return 1
+    # Ensure recovery file is NOT protected
+    /usr/bin/sudo chattr -i "$RECOVERY_FILE" 2>/dev/null || true
+    
+    echo -e "${GREEN}  ✓ Recovery instructions: $RECOVERY_FILE${NC}"
+}
+
+#===============================================================================
+# REQUEST SYSTEM
+#===============================================================================
+
+guardian_request() {
+    local file="$1"
+    local reason="$2"
+    local agent="${3:-unknown_agent}"
+    
+    if [ -z "$file" ] || [ -z "$reason" ]; then
+        echo -e "${RED}❌ Usage: guardian request <file> '<reason>'${NC}"
+        return 1
+    fi
+    
+    # Check user sovereignty
+    if check_user_sovereignty "$file"; then
+        echo -e "${GREEN}This file is user-sovereign and doesn't need Guardian approval.${NC}"
+        echo -e "${GREEN}You can edit it directly.${NC}"
+        return 0
+    fi
+    
+    # Create request
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local request_id=$(/usr/bin/openssl rand -hex 8)
+    local request_file="$APPROVAL_QUEUE/${request_id}.request"
+    
+    # Use NLP system if available
+    if [ -f "$GUARDIAN_DIR/guardian-nlp.py" ]; then
+        python3 "$GUARDIAN_DIR/guardian-nlp.py" request "$file" "$reason" "$agent" 2>/dev/null
+    else
+        # Fallback: create simple request
+        mkdir -p "$APPROVAL_QUEUE"
+        cat > "$request_file" << EOF
+REQUEST_ID: $request_id
+FILE: $file
+REASON: $reason
+AGENT: $agent
+STATUS: PENDING
+TIMESTAMP: $timestamp
+EOF
+    fi
+    
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║           🔐 GUARDIAN FILE EDIT REQUEST                  ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}📁 File:${NC} $file"
+    echo -e "${BLUE}🤖 Agent:${NC} $agent"
+    echo -e "${BLUE}📝 Reason:${NC} $reason"
+    echo -e "${BLUE}🔑 Request ID:${NC} $request_id"
+    echo ""
+    echo -e "${YELLOW}Respond with 'approved' or 'denied' to this request.${NC}"
+    echo ""
+    
+    log_action "request" "$file" "$reason"
+}
+
+#===============================================================================
+# APPROVAL SYSTEM
+#===============================================================================
+
+guardian_approve() {
+    local request_id="$1"
+    
+    if [ -z "$request_id" ]; then
+        echo -e "${RED}❌ Usage: guardian approve <request_id>${NC}"
+        guardian_pending
+        return 1
+    fi
+    
+    local request_file="$APPROVAL_QUEUE/${request_id}.request"
+    
+    if [ ! -f "$request_file" ]; then
+        echo -e "${RED}❌ Request not found: $request_id${NC}"
+        return 1
+    fi
+    
+    # Read request
+    local file=$(grep "^FILE:" "$request_file" | cut -d: -f2- | xargs)
+    local reason=$(grep "^REASON:" "$request_file" | cut -d: -f2-)
+    
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               GUARDIAN - Approval Required               ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}File:${NC} $file"
+    echo -e "${BLUE}Reason:${NC} $reason"
+    echo ""
+    
+    # Interactive confirmation
+    read -p "Approve this modification? (yes/no): " confirmation
+    
+    if [ "$confirmation" != "yes" ]; then
+        echo -e "${RED}❌ Request DENIED${NC}"
+        rm -f "$request_file"
+        log_action "deny" "$file" "User denied"
+        return 1
+    fi
+    
+    # Check user sovereignty again (safety)
+    if check_user_sovereignty "$file"; then
+        echo -e "${YELLOW}⚠️  Note: This file is user-sovereign and doesn't need protection.${NC}"
+    fi
+    
+    # Unlock file
+    echo -e "${GREEN}✅ Request APPROVED${NC}"
+    /usr/bin/sudo chattr -i "$file" 2>/dev/null
+    
+    # Track unlock
+    if [ -f "$GUARDIAN_DIR/unlock-tracker.py" ]; then
+        python3 "$GUARDIAN_DIR/unlock-tracker.py" add "$file" 300 2>/dev/null
+    fi
+    
+    # Move to processed
+    mv "$request_file" "$GUARDIAN_DIR/logs/"
+    
+    log_action "approve" "$file" "Approved"
+    
+    echo ""
+    echo -e "${GREEN}File unlocked for 5 minutes.${NC}"
+    echo -e "${BLUE}It will auto-relock after that.${NC}"
+}
+
+#===============================================================================
+# STATUS AND UTILITIES
+#===============================================================================
+
+guardian_status() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               GUARDIAN v2.0 - Status                     ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo -e "${BLUE}Protected Agent Files:${NC}"
+    for file in "${PROTECTED_FILES[@]}"; do
+        if [ -f "$file" ]; then
+            if is_protected "$file"; then
+                echo -e "  🔒 ${GREEN}LOCKED:${NC} $file"
+            else
+                echo -e "  🔓 ${YELLOW}UNLOCKED:${NC} $file"
+            fi
         fi
     done
     
-    # Not a dangerous command, pass through to real sudo
-    command sudo "$@"
+    echo ""
+    echo -e "${BLUE}User Sovereignty Status:${NC}"
+    for pattern in ".bashrc" ".profile"; do
+        file="$HOME/$pattern"
+        if [ -f "$file" ]; then
+            if is_protected "$file"; then
+                echo -e "  ${RED}⚠ LOCKED (should not be!):${NC} $file"
+                echo -e "    ${YELLOW}Run: guardian-emergency recover-user-files${NC}"
+            else
+                echo -e "  ${GREEN}✓ User editable:${NC} $file"
+            fi
+        fi
+    done
+    
+    echo ""
+    echo -e "${BLUE}Guardian Files:${NC}"
+    if [ -f "$GUARDIAN_DIR/guardian" ]; then
+        if is_protected "$GUARDIAN_DIR/guardian"; then
+            echo -e "  🔒 ${GREEN}Protected:${NC} $GUARDIAN_DIR/guardian"
+        else
+            echo -e "  🔓 ${YELLOW}Unprotected:${NC} $GUARDIAN_DIR/guardian"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${BLUE}Emergency Override:${NC}"
+    if [ -x "/usr/bin/guardian-emergency" ]; then
+        echo -e "  ${GREEN}✓ Installed:${NC} /usr/bin/guardian-emergency"
+    else
+        echo -e "  ${RED}✗ Not installed${NC}"
+    fi
+    
+    echo ""
+    echo -e "${BLUE}Recovery Instructions:${NC}"
+    if [ -f "$RECOVERY_FILE" ]; then
+        echo -e "  ${GREEN}✓ Available:${NC} $RECOVERY_FILE"
+    else
+        echo -e "  ${YELLOW}⚠ Not found${NC}"
+    fi
 }
 
-# CRITICAL: Make all hook functions readonly to prevent unsetting
-# This must be done AFTER all functions are defined
-readonly -f is_user_sovereign_file is_protected_file _guardian_check rm cp mv cat tee echo sudo 2>/dev/null || true
+guardian_pending() {
+    echo -e "${BLUE}Pending Requests:${NC}"
+    
+    local found=0
+    shopt -s nullglob
+    for request_file in "$APPROVAL_QUEUE"/*.request; do
+        if [ -f "$request_file" ]; then
+            found=1
+            local id=$(grep "^REQUEST_ID:" "$request_file" | cut -d: -f2 | tr -d ' ')
+            local file=$(grep "^FILE:" "$request_file" | cut -d: -f2-)
+            local reason=$(grep "^REASON:" "$request_file" | cut -d: -f2-)
+            
+            echo ""
+            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${BLUE}ID:${NC} $id"
+            echo -e "${BLUE}File:${NC} $file"
+            echo -e "${BLUE}Reason:${NC} $reason"
+        fi
+    done
+    
+    if [ "$found" -eq 0 ]; then
+        echo -e "${GREEN}No pending requests${NC}"
+    fi
+}
 
-# Show warning on shell start (only once per session)
-if [ -z "$GUARDIAN_WARNING_SHOWN" ]; then
-    export GUARDIAN_WARNING_SHOWN=1
-fi
+guardian_log() {
+    local lines="${1:-20}"
+    echo -e "${BLUE}Recent Guardian Activity:${NC}"
+    tail -n "$lines" "$APPROVAL_LOG" 2>/dev/null || echo "No log found"
+}
+
+#===============================================================================
+# TEMP UNLOCK
+#===============================================================================
+
+guardian_temp_unlock() {
+    local file="$1"
+    local duration="${2:-300}"
+    
+    if [ -z "$file" ]; then
+        echo -e "${RED}❌ Usage: guardian temp-unlock <file> [duration_seconds]${NC}"
+        return 1
+    fi
+    
+    # Resolve path
+    file=$(realpath "$file" 2>/dev/null || echo "$file")
+    
+    # Check user sovereignty
+    if check_user_sovereignty "$file"; then
+        echo -e "${GREEN}This file is user-sovereign. You can edit it without unlocking.${NC}"
+        return 0
+    fi
+    
+    echo -e "${YELLOW}Unlocking: $file${NC}"
+    /usr/bin/sudo chattr -i "$file"
+    
+    # Track unlock
+    if [ -f "$GUARDIAN_DIR/unlock-tracker.py" ]; then
+        python3 "$GUARDIAN_DIR/unlock-tracker.py" add "$file" "$duration" 2>/dev/null
+    fi
+    
+    echo -e "${GREEN}✓ File unlocked for ${duration}s${NC}"
+    log_action "temp-unlock" "$file" "Duration: ${duration}s"
+}
+
+#===============================================================================
+# PROTECT COMMAND
+#===============================================================================
+
+guardian_protect() {
+    local file="$1"
+    
+    if [ -z "$file" ]; then
+        echo -e "${RED}❌ Usage: guardian protect <file>${NC}"
+        return 1
+    fi
+    
+    # Check user sovereignty
+    if check_user_sovereignty "$file"; then
+        echo -e "${RED}╔══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  🚨 USER SOVEREIGNTY VIOLATION                          ║${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${RED}Cannot protect: $file${NC}"
+        echo ""
+        echo "This file is protected by USER SOVEREIGNTY."
+        echo "Guardian cannot protect user shell configs or security files."
+        echo ""
+        return 1
+    fi
+    
+    /usr/bin/sudo chattr +i "$file" && \
+        echo -e "${GREEN}✓ Protected: $file${NC}" || \
+        echo -e "${RED}✗ Failed to protect: $file${NC}"
+    
+    log_action "protect" "$file" "Manual protection"
+}
+
+#===============================================================================
+# MAIN COMMAND DISPATCHER
+#===============================================================================
+
+case "${1:-}" in
+    init)
+        guardian_init
+        ;;
+    request)
+        shift
+        guardian_request "$@"
+        ;;
+    approve)
+        shift
+        guardian_approve "$@"
+        ;;
+    pending)
+        guardian_pending
+        ;;
+    status)
+        guardian_status
+        ;;
+    log)
+        shift
+        guardian_log "$@"
+        ;;
+    temp-unlock)
+        shift
+        guardian_temp_unlock "$@"
+        ;;
+    protect)
+        shift
+        guardian_protect "$@"
+        ;;
+    emergency)
+        /usr/bin/guardian-emergency "${2:-}" 2>/dev/null || \
+            echo -e "${RED}Emergency override not installed. Run 'guardian init'${NC}"
+        ;;
+    version)
+        echo "GUARDIAN v2.0 - Safe File Protection"
+        ;;
+    *)
+        echo ""
+        echo -e "${CYAN}GUARDIAN v2.0 - Safe File Protection for AI Agents${NC}"
+        echo ""
+        echo "Usage: guardian <command> [options]"
+        echo ""
+        echo "Commands:"
+        echo "  init                    Initialize Guardian (run once)"
+        echo "  status                  Show protection status"
+        echo "  request <file> <reason> Request file edit (agents)"
+        echo "  approve <id>            Approve request (users)"
+        echo "  pending                 Show pending requests"
+        echo "  temp-unlock <file>      Temporarily unlock file"
+        echo "  protect <file>          Add protection to file"
+        echo "  log [lines]             View activity log"
+        echo "  emergency <cmd>         Emergency override"
+        echo "  version                 Show version"
+        echo ""
+        echo -e "${GREEN}User Sovereignty:${NC}"
+        echo "  User files (.bashrc, .profile, etc.) are NEVER protected."
+        echo "  The human user ALWAYS has final control."
+        echo ""
+        echo -e "${YELLOW}Emergency:${NC}"
+        echo "  guardian-emergency unlock-all"
+        echo "  guardian-emergency recover-user-files"
+        echo "  See: ~/GUARDIAN_RECOVERY_INSTRUCTIONS.txt"
+        echo ""
+        ;;
+esac
