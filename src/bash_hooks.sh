@@ -116,3 +116,22 @@ if [ -z "$GUARDIAN_WARNING_SHOWN" ]; then
     export GUARDIAN_WARNING_SHOWN=1
     # Silent - guardian is active but doesn't spam the user
 fi
+
+# CRITICAL: Alias sudo to prevent bypass via /usr/bin/sudo
+# This must be sourced in .bashrc AFTER any agent modifications
+if [ -f "$GUARDIAN_DIR/bin/sudo" ]; then
+    alias sudo="$GUARDIAN_DIR/bin/sudo"
+fi
+
+# Also protect against direct /usr/bin/sudo calls
+# by checking in real-path resolution
+_guardian_realpath() {
+    local path="$1"
+    if command -v realpath &>/dev/null; then
+        realpath "$path" 2>/dev/null || echo "$path"
+    elif command -v readlink &>/dev/null; then
+        readlink -f "$path" 2>/dev/null || echo "$path"
+    else
+        echo "$path"
+    fi
+}

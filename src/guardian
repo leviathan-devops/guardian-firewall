@@ -240,7 +240,7 @@ guardian_request() {
     local request_file="$APPROVAL_QUEUE/${request_id}.request"
     
     # Create request using natural language system
-    python3 /home/leviathan/guardian-nlp.py request "$file" "$reason" "$agent" 2>/dev/null
+    python3 "$GUARDIAN_DIR/guardian-nlp.py" request "$file" "$reason" "$agent" 2>/dev/null
     
     # Read the request ID from the response file
     request_id=$(python3 -c "
@@ -342,22 +342,22 @@ guardian_approve() {
     echo ""
     echo -e "${BLUE}File unlocked for 5 minutes: $file${NC}"
     sudo chattr -i "$file" 2>/dev/null
-    
-    # Schedule re-lock in 5 minutes
-    (sleep 300 && sudo chattr +i "$file" 2>/dev/null) &
-    
+
+    # Track unlock persistently (survives reboots/crashes)
+    python3 "$GUARDIAN_DIR/unlock-tracker.py" add "$file" 300 2>/dev/null
+
     # Log approval
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "$timestamp|$(whoami)|approve|$file|$reason|APPROVED" >> "$APPROVAL_LOG"
-    
+
     # Update request status
     sed -i "s/STATUS: PENDING/STATUS: APPROVED/" "$request_file"
     mv "$request_file" "$GUARDIAN_DIR/logs/"
-    
+
     echo ""
-    echo -e "${YELLOW}File will auto-relock in 5 minutes${NC}"
+    echo -e "${YELLOW}File tracked - will auto-relock in 5 minutes${NC}"
     echo -e "${BLUE}To relock now: sudo chattr +i $file${NC}"
-    
+
     return 0
 }
 

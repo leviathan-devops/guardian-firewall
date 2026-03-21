@@ -38,10 +38,10 @@ class GuardianApproval:
     
     def create_request(self, file_path, reason, agent_name="agent"):
         """Create a new approval request"""
-        import random
+        import secrets
         import string
         
-        request_id = ''.join(random.choices('0123456789abcdef', k=16))
+        request_id = secrets.token_hex(8)
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         request = {

@@ -93,6 +93,23 @@ if ! grep -q ".guardrails/bash_hooks.sh" ~/.bashrc 2>/dev/null; then
     echo -e "${GREEN}✓ Bash hooks configured${NC}"
 fi
 
+# Detect and handle macOS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo -e "${YELLOW}⚠ Detected macOS - using chflags instead of chattr${NC}"
+    
+    # macOS uses chflags for immutability
+    if [ -f ~/.qwen/settings.json ]; then
+        chflags schg ~/.qwen/settings.json 2>/dev/null && echo -e "${GREEN}✓ Protected ~/.qwen/settings.json (macOS)${NC}" || true
+    fi
+    
+    if [ -f ~/.qwen/config.json ]; then
+        chflags schg ~/.qwen/config.json 2>/dev/null && echo -e "${GREEN}✓ Protected ~/.qwen/config.json (macOS)${NC}" || true
+    fi
+    
+    echo -e "${BLUE}Note: Guardian Angel and API scanner fully supported on macOS${NC}"
+    OS="macos"
+fi
+
 # Protect critical files (Linux only)
 if [ "$OS" == "linux" ]; then
     echo -e "${BLUE}[*] Protecting critical configuration files...${NC}"
@@ -141,4 +158,14 @@ echo ""
 # Reload bashrc
 if [ -f ~/.bashrc ]; then
     source ~/.bashrc 2>/dev/null || echo -e "${YELLOW}⚠ Please run: source ~/.bashrc${NC}"
+fi
+
+# Setup cron job for unlock tracking (relock on schedule)
+if command -v crontab &> /dev/null; then
+    # Check if cron job already exists
+    if ! crontab -l 2>/dev/null | grep -q "unlock-tracker"; then
+        # Add cron job to check every minute
+        (crontab -l 2>/dev/null; echo "* * * * * python3 $HOME/.guardrails/unlock-tracker.py check") | crontab -
+        echo -e "${GREEN}✓ Cron job added for unlock tracking${NC}"
+    fi
 fi

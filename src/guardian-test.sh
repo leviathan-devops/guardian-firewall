@@ -59,7 +59,7 @@ echo ""
 
 # Apply guardian encryption
 echo -e "${BLUE}[*] Applying GUARDIAN encryption...${NC}"
-/home/leviathan/guardian-encrypt.sh "$TEST_DIR" 2>&1 | grep -E "✓|ENCRYPTED" || true
+guardian-encrypt.sh "$TEST_DIR" 2>&1 | grep -E "✓|ENCRYPTED" || true
 echo ""
 
 # TEST 1: Verify immutable flag
@@ -196,7 +196,7 @@ echo ""
 
 # TEST 12: Guardian decrypt
 echo -e "${BLUE}[TEST 12] Test guardian-decrypt...${NC}"
-/home/leviathan/guardian-decrypt.sh "$TEST_DIR/test.py" 2>&1 | grep -q "Decrypted"
+guardian-decrypt.sh "$TEST_DIR/test.py" 2>&1 | grep -q "Decrypted"
 if lsattr "$TEST_DIR/test.py" 2>&1 | grep -q "^----"; then
     echo -e "  ${GREEN}✓ PASS: Decryption successful${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))

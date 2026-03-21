@@ -43,7 +43,7 @@ echo ""
 # STEP 1: Security scan for API keys
 echo -e "${BLUE}[*] STEP 1: Security scan for exposed API keys...${NC}"
 echo ""
-if ! /home/leviathan/guardian-scan-keys.sh "$TARGET" 2>&1; then
+if ! guardian-scan-keys.sh "$TARGET" 2>&1; then
     echo ""
     echo -e "${RED}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${RED}║  🚨 ENCRYPTION ABORTED - SECURITY ISSUES FOUND          ║${NC}"
