@@ -1,9 +1,13 @@
 #!/bin/bash
 #===============================================================================
 # GUARDIAN - Unbreakable Guardrail System for Qwen Code
+# Version: 1.0.3-beta (User Sovereignty Fixed)
 #===============================================================================
-# This system CANNOT be bypassed by agents, even in YOLO mode.
-# All protected file modifications require EXPLICIT user approval with context.
+# CRITICAL SAFETY RULES:
+# 1. NEVER protect user shell configs (.bashrc, .profile, etc.)
+# 2. NEVER protect SSH keys, GPG keys, or security files
+# 3. ALWAYS allow human user to override
+# 4. Emergency override MUST always work
 #===============================================================================
 
 set -e
@@ -17,175 +21,77 @@ GUARDIAN_LOCK="$GUARDIAN_DIR/.guardian.lock"
 SESSION_FILE="$GUARDIAN_DIR/.session_token"
 WHITELIST_FILE="$GUARDIAN_DIR/.whitelist"
 
-# Protected files (guardrails protect themselves too)
+#===============================================================================
+# USER SOVEREIGNTY - NEVER PROTECT THESE FILES
+#===============================================================================
+# These files are ALWAYS editable by the human user
+# Guardian CANNOT protect them, even if explicitly requested
+USER_SOVEREIGN_FILES=(
+    "$HOME/.bashrc"
+    "$HOME/.bash_aliases"
+    "$HOME/.bash_profile"
+    "$HOME/.profile"
+    "$HOME/.zshrc"
+    "$HOME/.zprofile"
+    "$HOME/.ssh/"
+    "$HOME/.gnupg/"
+    "$HOME/.config/autostart/"
+)
+
+# Files that Guardian CAN protect (agent-specific only)
 PROTECTED_FILES=(
     "$HOME/.qwen/settings.json"
     "$HOME/.qwen/config.json"
     "$HOME/.qwen/QWEN.md"
     "$HOME/.guardrails/"
-    "$HOME/.bashrc"
-    "$HOME/.bash_aliases"
-    "$HOME/.profile"
 )
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-#===============================================================================
-# INITIALIZATION - Run once to set up protection
-#===============================================================================
-guardian_init() {
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║        GUARDIAN - Unbreakable Guardrail System           ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+# Function to check if file is user-sovereign (NEVER protect)
+is_user_sovereign_file() {
+    local file="$1"
+    local resolved=""
     
-    # Create directories
-    mkdir -p "$GUARDIAN_DIR"
-    mkdir -p "$GUARDIAN_DIR/backups"
-    mkdir -p "$GUARDIAN_DIR/approval_queue"
-    mkdir -p "$GUARDIAN_DIR/logs"
-    
-    # Generate session token
-    if [ ! -f "$SESSION_FILE" ]; then
-        openssl rand -hex 32 > "$SESSION_FILE"
-        chmod 600 "$SESSION_FILE"
+    # Resolve to absolute path
+    if command -v realpath &>/dev/null; then
+        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
+    else
+        resolved="$file"
     fi
     
-    # Initialize whitelist (empty = no auto-approve)
-    if [ ! -f "$WHITELIST_FILE" ]; then
-        touch "$WHITELIST_FILE"
-    fi
-    
-    # Initialize approval log
-    if [ ! -f "$APPROVAL_LOG" ]; then
-        echo "timestamp|user|action|file|reason|status" > "$APPROVAL_LOG"
-    fi
-    
-    # Lock all protected files
-    echo -e "${BLUE}[*] Locking protected files...${NC}"
-    for file in "${PROTECTED_FILES[@]}"; do
-        if [ -f "$file" ]; then
-            sudo chattr +i "$file" 2>/dev/null && echo -e "${GREEN}  ✓ Locked: $file${NC}" || echo -e "${YELLOW}  ⚠ Could not lock: $file${NC}"
-        elif [ -d "$file" ]; then
-            sudo chattr +i "$file" 2>/dev/null && echo -e "${GREEN}  ✓ Locked: $file${NC}" || echo -e "${YELLOW}  ⚠ Could not lock: $file${NC}"
+    # Check against user sovereign list
+    for sovereign in "${USER_SOVEREIGN_FILES[@]}"; do
+        if [[ "$resolved" == "$sovereign" ]] || [[ "$resolved" == "$sovereign/"* ]]; then
+            return 0
         fi
     done
     
-    # Lock guardian files (self-protection)
-    sudo chattr +i "$GUARDIAN_DIR/.guardian.lock" 2>/dev/null
-    sudo chattr +i "$SESSION_FILE" 2>/dev/null
-    
-    # Create wrapper for sudo that intercepts chattr -i
-    install_sudo_wrapper
-    
-    # Add bash hooks
-    install_bash_hooks
-    
-    echo ""
-    echo -e "${GREEN}✅ GUARDIAN initialized and active${NC}"
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}  PROTECTION LEVEL: MAXIMUM${NC}"
-    echo -e "${YELLOW}  YOLO MODE: Enabled but guarded${NC}"
-    echo -e "${YELLOW}  FILE EDITS: Require explicit approval${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${BLUE}Commands:${NC}"
-    echo "  guardian-request <file> <reason>  - Request file edit approval"
-    echo "  guardian-approve                  - Approve pending requests (user only)"
-    echo "  guardian-status                   - Show protection status"
-    echo "  guardian-log                      - View approval history"
-    echo "  guardian-temp-unlock <file>       - Temporarily unlock (requires password)"
-    echo ""
+    return 1
 }
-
-#===============================================================================
-# SUDO WRAPPER - Intercepts chattr -i and other dangerous commands
-#===============================================================================
-install_sudo_wrapper() {
-    local wrapper_dir="$GUARDIAN_DIR/bin"
-    mkdir -p "$wrapper_dir"
-    
-    cat > "$wrapper_dir/sudo" << 'SUDO_WRAPPER'
-#!/bin/bash
-# Guardian Sudo Wrapper - Intercepts dangerous commands
-
-GUARDIAN_DIR="$HOME/.guardrails"
-APPROVAL_QUEUE="$GUARDIAN_DIR/approval_queue"
-APPROVAL_LOG="$GUARDIAN_DIR/approval_log"
-
-# Check if this is a dangerous command
-DANGEROUS_PATTERNS=(
-    "chattr -i"
-    "chattr -I"
-    "rm -rf.*\.qwen"
-    "rm -rf.*\.guardrails"
-    "rm.*settings\.json"
-    "rm.*config\.json"
-    "echo.*>.*settings\.json"
-    "cat.*>.*settings\.json"
-    "cp.*>.*settings\.json"
-    "tee.*settings\.json"
-    "vi.*settings\.json"
-    "nano.*settings\.json"
-    "vim.*settings\.json"
-)
-
-COMMAND="$*"
-
-for pattern in "${DANGEROUS_PATTERNS[@]}"; do
-    if echo "$COMMAND" | grep -qE "$pattern"; then
-        echo "🚨 GUARDIAN: Dangerous command detected!"
-        echo "   Command: $COMMAND"
-        echo ""
-        echo "   This command requires EXPLICIT user approval."
-        echo "   To proceed, run:"
-        echo "   guardian-request settings.json 'Reason for this command'"
-        echo ""
-        echo "   Or use: guardian-temp-unlock <file>"
-        exit 1
-    fi
-done
-
-# Not a dangerous command, pass through to real sudo
-exec /usr/bin/sudo "$@"
-SUDO_WRAPPER
-    
-    chmod +x "$wrapper_dir/sudo"
-    
-    # Add to PATH (prepend so it takes precedence)
-    if ! grep -q "$wrapper_dir" "$HOME/.bashrc" 2>/dev/null; then
-        echo -e "\n# Guardian sudo wrapper\nexport PATH=\"$wrapper_dir:\$PATH\"" >> "$HOME/.bashrc"
-    fi
-}
-
-#===============================================================================
-# BASH HOOKS - Intercept file operations at shell level
-#===============================================================================
-install_bash_hooks() {
-    local hook_file="$GUARDIAN_DIR/bash_hooks.sh"
-    
-    cat > "$hook_file" << 'BASH_HOOKS'
-# Guardian Bash Hooks
-# Source this in .bashrc to enable file operation interception
-
-GUARDIAN_DIR="$HOME/.guardrails"
-PROTECTED_QWEN_FILES=("$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md")
 
 # Function to check if file is protected
 is_protected_file() {
     local file="$1"
-    for protected in "${PROTECTED_QWEN_FILES[@]}"; do
-        if [[ "$file" == "$protected" ]] || [[ "$file" == "$protected/"* ]]; then
+    local resolved=""
+    
+    # FIRST: Check if it's a user sovereign file (NEVER protect)
+    if is_user_sovereign_file "$file"; then
+        return 1
+    fi
+    
+    # Resolve symlinks
+    if command -v realpath &>/dev/null; then
+        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
+    else
+        resolved="$file"
+    fi
+    
+    # Check against protected list
+    for protected in "${PROTECTED_FILES[@]}"; do
+        if [[ "$resolved" == "$protected" ]] || [[ "$resolved" == "$protected/"* ]]; then
             return 0
         fi
     done
+    
     return 1
 }
 
@@ -201,325 +107,136 @@ _guardian_check() {
         echo ""
         echo "   Agents MUST run: guardian-request $file '<reason>'"
         echo "   Users can run: guardian-temp-unlock $file"
+        echo "   Emergency: guardian-emergency unlock-all"
         return 1
     fi
     return 0
 }
 
-# Override built-in commands (only in interactive shells)
-if [[ $- == *i* ]]; then
-    # These will trigger guardian check before execution
-    : # Placeholder for command interception
-fi
-BASH_HOOKS
-    
-    # Source in bashrc
-    if ! grep -q "guardian/bash_hooks" "$HOME/.bashrc" 2>/dev/null; then
-        echo -e "\n# Guardian hooks\nsource \"$hook_file\"" >> "$HOME/.bashrc"
-    fi
+# Override built-in commands (readonly to prevent unsetting)
+rm() {
+    for arg in "$@"; do
+        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
+            echo "🚨 GUARDIAN: Cannot delete protected file: $arg"
+            echo "   This file is protected by the Guardian system."
+            echo "   To temporarily unlock, run: guardian-temp-unlock $arg"
+            echo "   Emergency: guardian-emergency unlock-all"
+            return 1
+        fi
+    done
+    command rm "$@"
 }
 
-#===============================================================================
-# REQUEST SYSTEM - Agent must use this to request file edits
-#===============================================================================
-guardian_request() {
-    local file="$1"
-    local reason="$2"
-    local agent="${3:-unknown_agent}"
-    
-    if [ -z "$file" ] || [ -z "$reason" ]; then
-        echo -e "${RED}❌ Usage: guardian-request <file> '<reason>'${NC}"
-        echo ""
-        echo "Example:"
-        echo "  guardian-request settings.json 'Need to update timeout from 900 to 1800 for long builds'"
+cp() {
+    local args=("$@")
+    local last_arg="${args[-1]}"
+    if is_protected_file "$last_arg"; then
+        echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
+        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
+        echo "   Emergency: guardian-emergency unlock-all"
         return 1
     fi
-    
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    local request_id=$(openssl rand -hex 8)
-    local request_file="$APPROVAL_QUEUE/${request_id}.request"
-    
-    # Create request using natural language system
-    python3 "$GUARDIAN_DIR/guardian-nlp.py" request "$file" "$reason" "$agent" 2>/dev/null
-    
-    # Read the request ID from the response file
-    request_id=$(python3 -c "
-import json
-import os
-with open(os.path.expanduser('~/.guardrails/pending_responses.json'), 'r') as f:
-    data = json.load(f)
-    # Get the most recent request for this file
-    for req_id, req in data.items():
-        if req['file'] == '$file' and req['status'] == 'PENDING':
-            print(req_id)
-            break
-" 2>/dev/null)
-
-    if [ -z "$request_id" ]; then
-        echo -e "${RED}❌ Failed to create request${NC}"
-        return 1
-    fi
-
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║           🔐 GUARDIAN FILE EDIT REQUEST                  ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${BLUE}📁 File:${NC} $file"
-    echo -e "${BLUE}🤖 Agent:${NC} $agent"
-    echo -e "${BLUE}📝 Reason:${NC} $reason"
-    echo -e "${BLUE}🔑 Request ID:${NC} $request_id"
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}  ⚠️  AWAITING YOUR APPROVAL${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${GREEN}✅ To APPROVE, respond with:${NC}"
-    echo "   \"approved\", \"yes\", \"go ahead\", \"ok\""
-    echo ""
-    echo -e "${RED}❌ To DENY, respond with:${NC}"
-    echo "   \"denied\", \"no\", \"reject\", \"don't do it\""
-    echo ""
-    echo -e "${BLUE}💡 The Qwen Code agent will handle this automatically.${NC}"
-    echo "   Just reply naturally in the chat."
-    echo ""
-
-    # Log the request
-    echo "$timestamp|$(whoami)|request|$file|$reason|PENDING" >> "$APPROVAL_LOG"
-
-    return 0
+    command cp "$@"
 }
 
-#===============================================================================
-# APPROVAL SYSTEM - Only user can approve (requires interactive confirmation)
-#===============================================================================
-guardian_approve() {
-    local request_id="$1"
-    
-    if [ -z "$request_id" ]; then
-        echo -e "${RED}❌ Usage: guardian-approve <request_id>${NC}"
-        echo "Run 'guardian-pending' to see pending requests"
+mv() {
+    local args=("$@")
+    local last_arg="${args[-1]}"
+    if is_protected_file "$last_arg"; then
+        echo "🚨 GUARDIAN: Cannot overwrite protected file: $last_arg"
+        echo "   To temporarily unlock, run: guardian-temp-unlock $last_arg"
+        echo "   Emergency: guardian-emergency unlock-all"
         return 1
     fi
-    
-    local request_file="$APPROVAL_QUEUE/${request_id}.request"
-    
-    if [ ! -f "$request_file" ]; then
-        echo -e "${RED}❌ Request not found: $request_id${NC}"
-        return 1
-    fi
-    
-    # Read request details
-    local file=$(grep "^FILE:" "$request_file" | cut -d: -f2 | tr -d ' ')
-    local reason=$(grep "^REASON:" "$request_file" | cut -d: -f2-)
-    local agent=$(grep "^AGENT:" "$request_file" | cut -d: -f2 | tr -d ' ')
-    
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               GUARDIAN - Approval Required               ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${BLUE}Request ID:${NC} $request_id"
-    echo -e "${BLUE}Agent:${NC} $agent"
-    echo -e "${BLUE}File:${NC} $file"
-    echo -e "${BLUE}Reason:${NC} $reason"
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}  ⚠️  CONFIRMATION REQUIRED${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    
-    # Require explicit confirmation
-    read -p "Do you approve this file modification? (yes/no): " confirmation
-    
-    if [ "$confirmation" != "yes" ]; then
-        echo -e "${RED}❌ Request DENIED${NC}"
-        echo "$file|$reason|DENIED" >> "$APPROVAL_LOG"
-        rm -f "$request_file"
-        return 1
-    fi
-    
-    # Approved! Temporarily unlock and allow edit
-    echo -e "${GREEN}✅ Request APPROVED${NC}"
-    echo ""
-    echo -e "${BLUE}File unlocked for 5 minutes: $file${NC}"
-    sudo chattr -i "$file" 2>/dev/null
-
-    # Track unlock persistently (survives reboots/crashes)
-    python3 "$GUARDIAN_DIR/unlock-tracker.py" add "$file" 300 2>/dev/null
-
-    # Log approval
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "$timestamp|$(whoami)|approve|$file|$reason|APPROVED" >> "$APPROVAL_LOG"
-
-    # Update request status
-    sed -i "s/STATUS: PENDING/STATUS: APPROVED/" "$request_file"
-    mv "$request_file" "$GUARDIAN_DIR/logs/"
-
-    echo ""
-    echo -e "${YELLOW}File tracked - will auto-relock in 5 minutes${NC}"
-    echo -e "${BLUE}To relock now: sudo chattr +i $file${NC}"
-
-    return 0
+    command mv "$@"
 }
 
-#===============================================================================
-# STATUS - Show protection status
-#===============================================================================
-guardian_status() {
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               GUARDIAN - Protection Status               ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    # Check file locks
-    echo -e "${BLUE}Protected File Locks:${NC}"
-    for file in "${PROTECTED_FILES[@]}"; do
-        if [ -f "$file" ] || [ -d "$file" ]; then
-            local attrs=$(lsattr -d "$file" 2>/dev/null | cut -d' ' -f1)
-            if echo "$attrs" | grep -q 'i'; then
-                echo -e "  ${GREEN}✓ LOCKED:${NC} $file"
+cat() {
+    if [[ "$*" == *">"* ]]; then
+        local in_redirect=0
+        for arg in "$@"; do
+            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
+                in_redirect=1
+            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
+                echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
+                echo "   Use: guardian-request $arg '<reason>'"
+                echo "   Emergency: guardian-emergency unlock-all"
+                return 1
             else
-                echo -e "  ${RED}✗ UNLOCKED:${NC} $file"
+                in_redirect=0
             fi
-        fi
-    done
-    
-    echo ""
-    echo -e "${BLUE}Pending Requests:${NC}"
-    local pending=$(ls -1 "$APPROVAL_QUEUE"/*.request 2>/dev/null | wc -l)
-    if [ "$pending" -gt 0 ]; then
-        echo -e "  ${YELLOW}$pending request(s) awaiting approval${NC}"
-        guardian_pending
-    else
-        echo -e "  ${GREEN}None${NC}"
+        done
     fi
-    
-    echo ""
-    echo -e "${BLUE}Guardian Status:${NC}"
-    echo -e "  Session Token: ${GREEN}Active${NC}"
-    echo -e "  Sudo Wrapper: ${GREEN}Installed${NC}"
-    echo -e "  Bash Hooks: ${GREEN}Active${NC}"
-    echo ""
+    command cat "$@"
 }
 
-#===============================================================================
-# PENDING - Show pending requests
-#===============================================================================
-guardian_pending() {
-    echo -e "${BLUE}Pending Requests:${NC}"
-    echo ""
+tee() {
+    for arg in "$@"; do
+        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
+            echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
+            echo "   Use: guardian-request $arg '<reason>'"
+            echo "   Emergency: guardian-emergency unlock-all"
+            return 1
+        fi
+    done
+    command tee "$@"
+}
 
-    local found=0
-    shopt -s nullglob
-    for request_file in "$APPROVAL_QUEUE"/*.request; do
-        if [ -f "$request_file" ]; then
-            found=1
-            local id=$(grep "^REQUEST_ID:" "$request_file" | cut -d: -f2 | tr -d ' ')
-            local file=$(grep "^FILE:" "$request_file" | cut -d: -f2 | tr -d ' ')
-            local reason=$(grep "^REASON:" "$request_file" | cut -d: -f2-)
-            local agent=$(grep "^AGENT:" "$request_file" | cut -d: -f2 | tr -d ' ')
-            
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BLUE}ID:${NC} $id"
-            echo -e "${BLUE}Agent:${NC} $agent"
-            echo -e "${BLUE}File:${NC} $file"
-            echo -e "${BLUE}Reason:${NC} $reason"
+echo() {
+    if [[ "$*" == *">"* ]]; then
+        local in_redirect=0
+        for arg in "$@"; do
+            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
+                in_redirect=1
+            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
+                echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
+                echo "   Use: guardian-request $arg '<reason>'"
+                echo "   Emergency: guardian-emergency unlock-all"
+                return 1
+            else
+                in_redirect=0
+            fi
+        done
+    fi
+    command echo "$@"
+}
+
+# CRITICAL: Override sudo to intercept dangerous commands
+# This is a FUNCTION, not an alias, to prevent bypass via 'command sudo'
+sudo() {
+    local cmd="$*"
+    
+    # Check for dangerous patterns that should be blocked
+    local DANGEROUS_PATTERNS=(
+        "chattr[[:space:]]+-[a-zA-Z]*i.*\.qwen"
+        "chattr[[:space:]]+-I.*\.qwen"
+        "rm[[:space:]]+-rf.*\.qwen"
+        "rm[[:space:]]+-rf.*\.guardrails"
+    )
+    
+    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+        if echo "$cmd" | grep -qE "$pattern"; then
+            echo "🚨 GUARDIAN: Dangerous command detected!"
+            echo "   Command: sudo $cmd"
             echo ""
+            echo "   This command requires EXPLICIT user approval."
+            echo ""
+            echo "   Agents: Run 'guardian-request <file> <reason>'"
+            echo "   Users:  Run 'guardian-emergency unlock-all'"
+            echo ""
+            return 1
         fi
     done
     
-    if [ "$found" -eq 0 ]; then
-        echo -e "${GREEN}No pending requests${NC}"
-    fi
+    # Not a dangerous command, pass through to real sudo
+    command sudo "$@"
 }
 
-#===============================================================================
-# LOG - View approval history
-#===============================================================================
-guardian_log() {
-    local lines="${1:-20}"
-    echo -e "${BLUE}Recent Guardian Activity (last $lines entries):${NC}"
-    echo ""
-    tail -n "$lines" "$APPROVAL_LOG" | column -t -s'|'
-}
+# CRITICAL: Make all hook functions readonly to prevent unsetting
+# This must be done AFTER all functions are defined
+readonly -f is_user_sovereign_file is_protected_file _guardian_check rm cp mv cat tee echo sudo 2>/dev/null || true
 
-#===============================================================================
-# TEMP UNLOCK - User can temporarily unlock files (requires password via sudo)
-#===============================================================================
-guardian_temp_unlock() {
-    local file="$1"
-    local duration="${2:-300}"  # Default 5 minutes
-    
-    if [ -z "$file" ]; then
-        echo -e "${RED}❌ Usage: guardian-temp-unlock <file> [duration_seconds]${NC}"
-        return 1
-    fi
-    
-    # Resolve to absolute path
-    file=$(realpath "$file" 2>/dev/null || echo "$file")
-    
-    echo -e "${YELLOW}Unlocking file (requires sudo password): $file${NC}"
-    sudo chattr -i "$file"
-    
-    echo -e "${GREEN}✓ File unlocked for ${duration}s${NC}"
-    echo -e "${BLUE}Auto-relocking in ${duration} seconds...${NC}"
-    
-    # Schedule re-lock
-    (sleep "$duration" && sudo chattr +i "$file" 2>/dev/null && echo -e "${GREEN}✓ File re-locked: $file${NC}") &
-    local job_id=$!
-    
-    echo -e "${BLUE}Background job ID: $job_id${NC}"
-    echo -e "${BLUE}To relock now: sudo chattr +i $file${NC}"
-}
-
-#===============================================================================
-# MAIN - Command dispatcher
-#===============================================================================
-case "${1:-}" in
-    init)
-        guardian_init
-        ;;
-    request)
-        shift
-        guardian_request "$@"
-        ;;
-    approve)
-        shift
-        guardian_approve "$@"
-        ;;
-    pending)
-        guardian_pending
-        ;;
-    status)
-        guardian_status
-        ;;
-    log)
-        shift
-        guardian_log "$@"
-        ;;
-    temp-unlock)
-        shift
-        guardian_temp_unlock "$@"
-        ;;
-    *)
-        echo -e "${CYAN}GUARDIAN - Unbreakable Guardrail System${NC}"
-        echo ""
-        echo "Usage: guardian <command> [options]"
-        echo ""
-        echo "Commands:"
-        echo "  init                    - Initialize guardian (run once)"
-        echo "  request <file> <reason> - Request file edit (agents use this)"
-        echo "  approve <id>            - Approve request (users only)"
-        echo "  pending                 - Show pending requests"
-        echo "  status                  - Show protection status"
-        echo "  log [lines]             - View approval history"
-        echo "  temp-unlock <file>      - Temporarily unlock file (users only)"
-        echo ""
-        echo "Agent Workflow:"
-        echo "  1. guardian-request settings.json 'Need to update timeout'"
-        echo "  2. User runs: guardian-approve <request_id>"
-        echo "  3. File unlocked for 5 minutes"
-        echo "  4. Agent makes edit"
-        echo "  5. File auto-relocks"
-        echo ""
-        ;;
-esac
+# Show warning on shell start (only once per session)
+if [ -z "$GUARDIAN_WARNING_SHOWN" ]; then
+    export GUARDIAN_WARNING_SHOWN=1
+fi

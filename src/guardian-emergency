@@ -1,0 +1,204 @@
+#!/bin/bash
+#===============================================================================
+# GUARDIAN Emergency Override - ALWAYS Works For Human User
+#===============================================================================
+# This command MUST be installed in /usr/bin/ so it works even if:
+# - ~/.guardrails is corrupted
+# - PATH is broken
+# - User is locked out
+#
+# Usage: guardian-emergency <command>
+#===============================================================================
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_action() {
+    local msg="$1"
+    echo "$msg"
+    mkdir -p /var/log/guardian 2>/dev/null || true
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $msg" >> /var/log/guardian/emergency.log 2>/dev/null || true
+}
+
+show_help() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║          GUARDIAN EMERGENCY OVERRIDE                     ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Usage: guardian-emergency <command>"
+    echo ""
+    echo "Commands:"
+    echo "  unlock-all   - Unlock all protected files immediately"
+    echo "  disable      - Disable Guardian protection entirely"
+    echo "  status       - Check current protection status"
+    echo "  recovery     - Show recovery instructions"
+    echo ""
+    echo -e "${YELLOW}This command ALWAYS works for the human user.${NC}"
+    echo -e "${YELLOW}Location: /usr/bin/guardian-emergency${NC}"
+    echo ""
+}
+
+cmd_unlock_all() {
+    log_action "UNLOCK_ALL: User requested emergency unlock"
+    
+    echo -e "${YELLOW}Unlocking all protected files...${NC}"
+    echo ""
+    
+    # Unlock Qwen agent files
+    for file in "$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md"; do
+        if [ -f "$file" ]; then
+            /usr/bin/sudo chattr -i "$file" 2>/dev/null && \
+                echo -e "  ${GREEN}✓ Unlocked:${NC} $file" || \
+                echo -e "  ${YELLOW}⚠ Already unlocked:${NC} $file"
+        fi
+    done
+    
+    # Unlock Guardian files (but don't delete them)
+    if [ -d "$HOME/.guardrails" ]; then
+        /usr/bin/sudo chattr -R -i "$HOME/.guardrails" 2>/dev/null && \
+            echo -e "  ${GREEN}✓ Unlocked:${NC} $HOME/.guardrails/" || \
+            echo -e "  ${YELLOW}⚠ Already unlocked:${NC} $HOME/.guardrails/"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}✅ All protected files unlocked${NC}"
+    echo ""
+    echo -e "${YELLOW}To re-lock files, run: guardian init${NC}"
+}
+
+cmd_disable() {
+    log_action "DISABLE: User requested Guardian disable"
+    
+    echo -e "${YELLOW}Disabling Guardian protection...${NC}"
+    echo ""
+    
+    # Unlock everything first
+    cmd_unlock_all
+    
+    # Remove bash hooks from .bashrc
+    if [ -f "$HOME/.bashrc" ]; then
+        /usr/bin/sudo chattr -i "$HOME/.bashrc" 2>/dev/null || true
+        sed -i '/guardrails\/bash_hooks/d' "$HOME/.bashrc" 2>/dev/null || true
+        sed -i '/Guardian/d' "$HOME/.bashrc" 2>/dev/null || true
+        echo -e "  ${GREEN}✓ Removed bash hooks from .bashrc${NC}"
+    fi
+    
+    # Remove from PATH
+    if grep -q "guardrails/bin" "$HOME/.bashrc" 2>/dev/null; then
+        sed -i '/guardrails\/bin/d' "$HOME/.bashrc" 2>/dev/null || true
+        echo -e "  ${GREEN}✓ Removed Guardian from PATH${NC}"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}✅ Guardian disabled${NC}"
+    echo ""
+    echo -e "${YELLOW}To re-enable, run: guardian init${NC}"
+}
+
+cmd_status() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              GUARDIAN STATUS                             ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo "Protected files:"
+    echo ""
+    
+    for file in "$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md"; do
+        if [ -f "$file" ]; then
+            attrs=$(/usr/bin/lsattr -d "$file" 2>/dev/null | cut -d' ' -f1)
+            if echo "$attrs" | grep -q 'i'; then
+                echo -e "  🔒 LOCKED: $file"
+            else
+                echo -e "  🔓 UNLOCKED: $file"
+            fi
+        else
+            echo -e "  ⚪ NOT FOUND: $file"
+        fi
+    done
+    
+    echo ""
+    
+    if [ -d "$HOME/.guardrails" ]; then
+        attrs=$(/usr/bin/lsattr -d "$HOME/.guardrails" 2>/dev/null | cut -d' ' -f1)
+        if echo "$attrs" | grep -q 'i'; then
+            echo -e "  🔒 LOCKED: $HOME/.guardrails/"
+        else
+            echo -e "  🔓 UNLOCKED: $HOME/.guardrails/"
+        fi
+    fi
+    
+    echo ""
+    
+    # Check for guardian-emergency
+    if [ -x /usr/bin/guardian-emergency ]; then
+        echo -e "  ${GREEN}✓ Emergency override available${NC}"
+    else
+        echo -e "  ${RED}✗ Emergency override NOT installed${NC}"
+    fi
+    
+    echo ""
+}
+
+cmd_recovery() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║          GUARDIAN RECOVERY INSTRUCTIONS                  ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo "If you are locked out of your own files:"
+    echo ""
+    echo "1. Run this command (you already are):"
+    echo "   guardian-emergency unlock-all"
+    echo ""
+    echo "2. Manual override:"
+    echo "   /usr/bin/sudo chattr -i ~/.qwen/settings.json"
+    echo "   /usr/bin/sudo chattr -i ~/.qwen/config.json"
+    echo "   /usr/bin/sudo chattr -i ~/.guardrails/*"
+    echo ""
+    echo "3. Full disable:"
+    echo "   guardian-emergency disable"
+    echo ""
+    echo "4. Recovery from Live USB (last resort):"
+    echo "   Boot from USB, mount your drive, and run:"
+    echo "   sudo chattr -i /mnt/home/YOURUSER/.qwen/*"
+    echo "   sudo chattr -i /mnt/home/YOURUSER/.guardrails/*"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Why This Happened:"
+    echo "Guardian protects AI agent files from modification."
+    echo "Sometimes this can accidentally block the human user."
+    echo ""
+    echo "This File:"
+    echo "This recovery file is NEVER protected and ALWAYS accessible."
+    echo "Keep it in your home directory for emergencies."
+    echo ""
+}
+
+# Main command dispatcher
+case "${1:-}" in
+    unlock-all)
+        cmd_unlock_all
+        ;;
+    disable)
+        cmd_disable
+        ;;
+    status)
+        cmd_status
+        ;;
+    recovery)
+        cmd_recovery
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac
+
+exit 0
