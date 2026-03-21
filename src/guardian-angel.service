@@ -1,0 +1,25 @@
+[Unit]
+Description=Guardian Angel - Real-Time Security Monitor
+Documentation=https://github.com/leviathan-devops/guardian-firewall
+After=network.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%HOME%
+ExecStart=/usr/bin/python3 %HOME%/.guardrails/guardian-angel.py daemon
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security settings
+NoNewPrivileges=false
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=guardian-angel
+
+[Install]
+WantedBy=multi-user.target
