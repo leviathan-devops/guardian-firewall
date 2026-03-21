@@ -11,6 +11,7 @@ Usage:
 """
 
 import json
+import fcntl
 import os
 import sys
 import re
@@ -156,10 +157,26 @@ to important files. It ensures you always know what's being changed and why.
             return {"error": "Unclear response - please use 'approved' or 'denied'"}
     
     def approve_request(self, request_id, user_text="Approved by user"):
-        """Approve a request and unlock file"""
+        """Approve a request and unlock file with file locking to prevent race conditions"""
         import subprocess
+        import fcntl
         
         request = self.pending_responses[request_id]
+        request_file = os.path.join(APPROVAL_QUEUE, f"{request_id}.request")
+        
+        # Use file locking to prevent race conditions
+        try:
+            with open(request_file, 'r+') as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    loaded_request = json.load(f)
+                    if loaded_request.get('status') != 'PENDING':
+                        return {"error": "Request already processed", "status": loaded_request.get('status')}
+                    request = loaded_request
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            return {"error": f"Failed to lock request file: {e}"}
         file_path = request['file']
         
         # Update request status

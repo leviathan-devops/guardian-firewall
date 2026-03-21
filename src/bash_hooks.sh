@@ -1,14 +1,37 @@
-# Guardian Bash Hooks
-# Source this in .bashrc to enable file operation interception
+#!/bin/bash
+#===============================================================================
+# GUARDIAN Bash Hooks - Intercept file operations
+#===============================================================================
+# These hooks are loaded into interactive bash shells to intercept
+# common file modification commands on protected files.
+#===============================================================================
 
 GUARDIAN_DIR="$HOME/.guardrails"
-PROTECTED_QWEN_FILES=("$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md" "$HOME/.guardrails/")
+PROTECTED_QWEN_FILES=("$HOME/.qwen/settings.json" "$HOME/.qwen/config.json" "$HOME/.qwen/QWEN.md")
 
-# Function to check if file is protected
+# Function to check if file is protected (with symlink resolution)
 is_protected_file() {
     local file="$1"
+    local resolved=""
+    
+    # Resolve symlinks to prevent symlink attacks
+    if command -v realpath &>/dev/null; then
+        resolved=$(realpath -m "$file" 2>/dev/null) || resolved="$file"
+    elif command -v readlink &>/dev/null; then
+        resolved=$(readlink -f "$file" 2>/dev/null) || resolved="$file"
+    else
+        resolved="$file"
+    fi
+    
     for protected in "${PROTECTED_QWEN_FILES[@]}"; do
-        if [[ "$file" == "$protected" ]] || [[ "$file" == "$protected"* ]]; then
+        local protected_resolved=""
+        if command -v realpath &>/dev/null; then
+            protected_resolved=$(realpath -m "$protected" 2>/dev/null) || protected_resolved="$protected"
+        else
+            protected_resolved="$protected"
+        fi
+        
+        if [[ "$resolved" == "$protected_resolved" ]] || [[ "$resolved" == "$protected_resolved/"* ]]; then
             return 0
         fi
     done
@@ -32,10 +55,10 @@ _guardian_check() {
     return 0
 }
 
-# Override rm to protect files
+# Override built-in commands (readonly to prevent unsetting)
 rm() {
     for arg in "$@"; do
-        if is_protected_file "$arg"; then
+        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
             echo "🚨 GUARDIAN: Cannot delete protected file: $arg"
             echo "   This file is protected by the Guardian system."
             echo "   To temporarily unlock, run: guardian-temp-unlock $arg"
@@ -45,7 +68,6 @@ rm() {
     command rm "$@"
 }
 
-# Override cp to protect destinations
 cp() {
     local args=("$@")
     local last_arg="${args[-1]}"
@@ -57,7 +79,6 @@ cp() {
     command cp "$@"
 }
 
-# Override mv to protect destinations
 mv() {
     local args=("$@")
     local last_arg="${args[-1]}"
@@ -69,26 +90,27 @@ mv() {
     command mv "$@"
 }
 
-# Override cat redirection
 cat() {
     if [[ "$*" == *">"* ]]; then
+        local in_redirect=0
         for arg in "$@"; do
-            if [[ "$arg" == ">" ]] || [[ "$arg" == ">>" ]]; then
-                : # Next arg will be the file
-            elif is_protected_file "$arg" && [[ "${args[-2]}" == ">" || "${args[-2]}" == ">>" ]]; then
+            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
+                in_redirect=1
+            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
                 echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
                 echo "   Use: guardian-request $arg '<reason>'"
                 return 1
+            else
+                in_redirect=0
             fi
         done
     fi
     command cat "$@"
 }
 
-# Override tee
 tee() {
     for arg in "$@"; do
-        if is_protected_file "$arg"; then
+        if [[ "$arg" != -* ]] && is_protected_file "$arg"; then
             echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
             echo "   Use: guardian-request $arg '<reason>'"
             return 1
@@ -97,41 +119,63 @@ tee() {
     command tee "$@"
 }
 
-# Override echo with redirection
 echo() {
     if [[ "$*" == *">"* ]]; then
+        local in_redirect=0
         for arg in "$@"; do
-            if is_protected_file "$arg" && [[ "$*" == *"> $arg"* || "$*" == *">>$arg"* ]]; then
+            if [[ "$arg" == ">" || "$arg" == ">>" ]]; then
+                in_redirect=1
+            elif [[ $in_redirect -eq 1 ]] && is_protected_file "$arg"; then
                 echo "🚨 GUARDIAN: Cannot write to protected file: $arg"
                 echo "   Use: guardian-request $arg '<reason>'"
                 return 1
+            else
+                in_redirect=0
             fi
         done
     fi
     command echo "$@"
 }
 
+# CRITICAL: Override sudo to intercept dangerous commands
+# This is a FUNCTION, not an alias, to prevent bypass via 'command sudo'
+sudo() {
+    local cmd="$*"
+    
+    # Check for dangerous patterns that should be blocked
+    local DANGEROUS_PATTERNS=(
+        "chattr[[:space:]]+-[a-zA-Z]*i"
+        "chattr[[:space:]]+-I"
+        "rm[[:space:]]+-rf.*\.qwen"
+        "rm[[:space:]]+-rf.*\.guardrails"
+        "rm.*settings\.json"
+        "rm.*config\.json"
+        "rm.*guardian"
+    )
+    
+    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+        if echo "$cmd" | grep -qE "$pattern"; then
+            echo "🚨 GUARDIAN: Dangerous command detected!"
+            echo "   Command: sudo $cmd"
+            echo ""
+            echo "   This command requires EXPLICIT user approval."
+            echo ""
+            echo "   Agents: Run 'guardian-request <file> <reason>'"
+            echo "   Users:  Run 'guardian-temp-unlock <file>'"
+            echo ""
+            return 1
+        fi
+    done
+    
+    # Not a dangerous command, pass through to real sudo
+    command sudo "$@"
+}
+
+# CRITICAL: Make all hook functions readonly to prevent unsetting
+# This must be done AFTER all functions are defined
+readonly -f is_protected_file _guardian_check rm cp mv cat tee echo sudo 2>/dev/null || true
+
 # Show warning on shell start (only once per session)
 if [ -z "$GUARDIAN_WARNING_SHOWN" ]; then
     export GUARDIAN_WARNING_SHOWN=1
-    # Silent - guardian is active but doesn't spam the user
 fi
-
-# CRITICAL: Alias sudo to prevent bypass via /usr/bin/sudo
-# This must be sourced in .bashrc AFTER any agent modifications
-if [ -f "$GUARDIAN_DIR/bin/sudo" ]; then
-    alias sudo="$GUARDIAN_DIR/bin/sudo"
-fi
-
-# Also protect against direct /usr/bin/sudo calls
-# by checking in real-path resolution
-_guardian_realpath() {
-    local path="$1"
-    if command -v realpath &>/dev/null; then
-        realpath "$path" 2>/dev/null || echo "$path"
-    elif command -v readlink &>/dev/null; then
-        readlink -f "$path" 2>/dev/null || echo "$path"
-    else
-        echo "$path"
-    fi
-}
