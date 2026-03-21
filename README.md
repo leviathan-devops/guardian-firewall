@@ -1,393 +1,271 @@
-# 🔐 GUARDIAN Firewall
+# GUARDIAN v2.0 - Safe File Protection for AI Agents
 
-**The Unbreakable Protection System for AI Agent Builds**
+## 🔴 What's New in v2.0
 
-![Status](https://img.shields.io/badge/status-beta-yellow.svg)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourusername/guardian-firewall/releases)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-12/12%20passed-brightgreen.svg)](docs/TEST_RESULTS.md)
+**USER SOVEREIGNTY** is now built into the core architecture.
 
----
-
-> ⚠️ **SECURITY NOTICE**: This software has not undergone independent security auditing.
-> Use at your own risk for personal/internal use. See [SECURITY.md](SECURITY.md) for details.
-
-## 🚀 Quick Start
-
-### Install Guardian Firewall
+### The Problem with v1.x
 
 ```bash
-# Clone the repo
-git clone https://github.com/yourusername/guardian-firewall.git
-cd guardian-firewall
-
-# Run installer
-./install.sh
+# v1.x could accidentally lock user out of their own device
+# If .bashrc was in protected list:
+echo "export PATH=..." >> ~/.bashrc
+# Result: Operation not permitted
+# User locked out! 😱
 ```
 
-### One-Liner Install
+### The Solution in v2.0
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/guardian-firewall/main/install.sh | bash
+# v2.0 NEVER protects user shell configs
+# User sovereignty list:
+USER_SOVEREIGN_FILES=(
+    ~/.bashrc
+    ~/.bash_aliases
+    ~/.profile
+    ~/.zshrc
+    ~/.ssh/
+    ~/.gnupg/
+)
+# These are ALWAYS editable by the human user.
 ```
 
 ---
 
-## 📋 What is GUARDIAN?
-
-GUARDIAN is a **multi-layer file protection system** that prevents AI agents from modifying protected files without explicit human approval - even in YOLO mode.
-
-### Three Core Systems
-
-| System | Purpose | When to Use |
-|--------|---------|-------------|
-| 🔐 **Guardian Firewall** | Core protection for critical files | Always active |
-| 🔒 **Guardian Encryption** | Apply protection to completed codebases | Ready to ship |
-| 👼 **Guardian Angel** | Real-time security monitoring during builds | Every build |
-
----
-
-## 🔐 Guardian Firewall (Core System)
-
-**Protects your critical files from unauthorized modification.**
-
-### Features
-
-- ✅ **Immutable Files** - Kernel-level `chattr +i` protection
-- ✅ **Natural Language Approval** - Respond "yes"/"no" in chat
-- ✅ **Bash Interception** - Blocks rm/cp/mv/echo/cat/tee
-- ✅ **Sudo Wrapper** - Blocks `sudo chattr -i` bypass
-- ✅ **Auto-Relock** - 5-minute unlock windows
-- ✅ **Audit Trail** - All changes logged
-- ✅ **API Key Scanner** - Detects exposed secrets
-
-### How It Works
-
-```
-Agent needs to edit → Creates request → You see prompt in chat →
-You respond "yes" → File unlocked 5 min → Agent edits → Auto-relocks
-```
-
-### User Experience
-
-**Agent shows you:**
-```
-╔══════════════════════════════════════════════════════════╗
-║           🔐 GUARDIAN FILE EDIT REQUEST                  ║
-╚══════════════════════════════════════════════════════════╝
-
-📁 File: ~/.qwen/settings.json
-🤖 Agent: code_agent
-📝 Reason: Update timeout from 900 to 1800 seconds
-
-✅ Respond "approved" or "denied"
-💡 Just reply naturally in the chat
-```
-
-**You type:** `yes go ahead`
-
-**System:** ✅ Approved, file unlocked for 5 minutes, auto-relocks
-
-### Protected Files (Default)
-
-- `~/.qwen/settings.json` - Qwen Code config
-- `~/.qwen/config.json` - API credentials
-- `~/.bashrc`, `~/.bash_aliases` - Shell configs
-- Any files you encrypt with Guardian Encryption
-
----
-
-## 🔒 Guardian Encryption
-
-**Apply Guardian protection to completed codebases.**
-
-### What It Does
-
-- 🔒 Makes code **IMMUTABLE** (cannot be modified without approval)
-- 📌 Makes code **STICKY** (cannot be deleted by agents)
-- 🎯 **ENFORCES** code execution (cannot be ignored)
-- 🔍 **Scans for API keys** before encrypting
-- 📝 Creates **GUARDIAN_ENCRYPTED.md** manifest
-
-### When to Use
-
-**DO encrypt:**
-- ✅ Completed features ready to ship
-- ✅ Custom skills/integrations
-- ✅ Critical architecture
-- ✅ Stable configurations
-- ✅ AI-generated code to preserve
-
-**DON'T encrypt:**
-- ❌ Work-in-progress
-- ❌ Temporary files
-- ❌ Test code
-
-### Usage
-
-```bash
-# Encrypt a codebase
-guardian-encrypt.sh ~/my-completed-project/
-
-# Output:
-# ✓ ENCRYPTED: src/main.py
-# ✓ ENCRYPTED: src/core.py
-# ✓ ENCRYPTED: config.json
-# ✓ Created: GUARDIAN_ENCRYPTED.md
-#
-# 3 files now IMMUTABLE
-```
-
-### Use Case: Skill Files
-
-**Problem:** Agents ignore custom skills and use default CLI code.
-
-**Solution:**
-```bash
-guardian-encrypt.sh ~/.qwen/skills/deepseek-brain/
-```
-
-**Result:**
-- Skill files IMMUTABLE
-- Agents MUST use skill (cannot delete)
-- Architecture enforced
-- Changes require human approval
-
----
-
-## 👼 Guardian Angel
-
-**Real-time security monitoring during builds.**
-
-### What It Does
-
-- 👁️ **Silently monitors** builds while you code
-- 🔍 **Detects vulnerabilities** in real-time
-- 🛑 **Reports BEFORE testing** - between Step 1 and Step 2
-- 💡 **Provides remediation** - exact fix instructions
-- 📊 **Generates reports** - markdown security reports
-
-### Detected Vulnerabilities
-
-| Severity | Examples | Action |
-|----------|----------|--------|
-| 🔴 CRITICAL | Hardcoded API keys, command injection | FIX BEFORE TESTING |
-| 🟠 HIGH | SQL injection, path traversal | FIX BEFORE TESTING |
-| 🟡 MEDIUM | Insecure randomness, bare excepts | REVIEW & FIX |
-| 🔵 LOW | Debug code, hardcoded URLs | LOG FOR LATER |
-
-### Build Workflow Integration
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  STEP 1: WRITE CODE                                         │
-│  - Guardian Angel monitors silently                         │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│  🛑 GUARDIAN ANGEL ACTIVATES (MANDATORY GATE)              │
-│  - Run: guardian-angel scan <build-name>                   │
-│  - Fix CRITICAL/HIGH vulnerabilities                        │
-│  - Re-scan until clean                                      │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│  STEP 2: TEST IN DOCKER SANDBOX                             │
-│  - Only proceeds if Guardian Angel gives ✅                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Integration
-
-**Copy this prompt to your coding agent:**
-
-```bash
-cat prompts/guardian-angel-integration.txt
-```
-
-The prompt ensures:
-- Guardian Angel activates automatically
-- Scans run before EVERY test phase
-- CRITICAL/HIGH issues MUST be fixed first
-- Security reports saved with build artifacts
-
----
-
-## 📦 Installation
-
-### Prerequisites
-
-- Linux (macOS partially supported - `chattr` not available)
-- Python 3.6+
-- Bash
-- sudo access
+## Installation
 
 ### Quick Install
 
 ```bash
-# Clone repo
-git clone https://github.com/yourusername/guardian-firewall.git
+# Clone and install
+git clone https://github.com/leviathan-devops/guardian-firewall.git
 cd guardian-firewall
-
-# Run installer
 ./install.sh
-
-# Verify installation
-guardian status
 ```
 
-### Manual Install
+### What the Installer Does
+
+1. **Unlocks all user files first** (safety)
+2. **Installs emergency override** to `/usr/bin/guardian-emergency`
+3. **Creates recovery instructions** at `~/GUARDIAN_RECOVERY_INSTRUCTIONS.txt`
+4. **Asks for confirmation** before protecting anything
+5. **Only protects agent files**, never user files
+
+---
+
+## Emergency Override
+
+### If You're Locked Out
 
 ```bash
-# Copy scripts
-cp src/* ~/.guardrails/
-chmod +x ~/.guardrails/*
+# Option 1: Emergency command
+guardian-emergency unlock-all
 
-# Add to PATH
-echo 'export PATH="$HOME/.guardrails/bin:$PATH"' >> ~/.bashrc
+# Option 2: Recover user files only
+guardian-emergency recover-user-files
 
-# Source bash hooks
-echo 'source "$HOME/.guardrails/bash_hooks.sh"' >> ~/.bashrc
-source ~/.bashrc
+# Option 3: Disable Guardian entirely
+guardian-emergency disable
 
-# Protect files (Linux only)
-sudo chattr +i ~/.qwen/settings.json ~/.qwen/config.json
+# Option 4: Manual override
+/usr/bin/sudo chattr -i ~/.qwen/settings.json
+```
+
+### Why This Always Works
+
+- `guardian-emergency` is in `/usr/bin/` (system path)
+- It uses `/usr/bin/sudo` directly (full path bypasses wrappers)
+- It's installed BEFORE any files are protected
+- The recovery instructions file is NEVER protected
+
+---
+
+## Protected vs. Not Protected
+
+### Protected (Need Approval)
+
+| File | Why Protected |
+|------|---------------|
+| `~/.qwen/settings.json` | AI agent configuration |
+| `~/.qwen/config.json` | AI agent API credentials |
+| `~/.qwen/QWEN.md` | AI agent guidelines |
+| `~/.guardrails/*` | Guardian system files |
+
+### NOT Protected (User Sovereign)
+
+| File | Why Not Protected |
+|------|-------------------|
+| `~/.bashrc` | User shell config |
+| `~/.profile` | User profile |
+| `~/.zshrc` | User zsh config |
+| `~/.ssh/*` | User SSH keys |
+| `~/.gnupg/*` | User GPG keys |
+| All other files | User has control |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    INSTALLATION                          │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  1. Unlock user files (safety first)            │    │
+│  │  2. Install emergency override to /usr/bin      │    │
+│  │  3. Create recovery instructions (unprotected)  │    │
+│  │  4. ASK USER before protecting                  │    │
+│  │  5. Protect ONLY agent files                    │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                    RUNTIME PROTECTION                    │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  is_protected_file() {                          │    │
+│  │    if is_user_sovereign($file): return FALSE    │    │
+│  │    if in PROTECTED_FILES: return TRUE           │    │
+│  │    return FALSE                                 │    │
+│  │  }                                              │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   EMERGENCY RECOVERY                     │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  /usr/bin/guardian-emergency                    │    │
+│  │  ├── unlock-all          # Unlock everything    │    │
+│  │  ├── recover-user-files  # Force unlock user    │    │
+│  │  ├── disable             # Disable Guardian     │    │
+│  │  └── status              # Check status         │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  ~/GUARDIAN_RECOVERY_INSTRUCTIONS.txt                  │
+│  └── NEVER protected, always readable                  │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🧪 Testing
+## The Golden Rules
 
-### Run Test Suite
+These are hardcoded into v2.0:
+
+### Rule 1: USER SOVEREIGNTY
+> The human user ALWAYS has final control over their device.
+
+### Rule 2: NO USER FILE PROTECTION
+> User shell configs, SSH keys, and home directory are NEVER protected.
+
+### Rule 3: EMERGENCY ALWAYS WORKS
+> `/usr/bin/guardian-emergency` MUST work even if everything else fails.
+
+### Rule 4: RECOVERY EXISTS OUTSIDE
+> Recovery instructions exist in a file that is NEVER protected.
+
+### Rule 5: INSTALL CONFIRMATION
+> User must confirm before ANY files are protected.
+
+---
+
+## Commands
+
+### Guardian Core
 
 ```bash
-./guardian-test.sh
+guardian init                 # Initialize protection
+guardian status               # Show what's protected
+guardian request <file> '<reason>'  # Request edit (agents)
+guardian approve <id>         # Approve request (users)
+guardian pending              # Show pending requests
+guardian temp-unlock <file>   # Temporarily unlock
+guardian log                  # View activity log
 ```
 
-### Expected Output
-
-```
-╔══════════════════════════════════════════════════════════╗
-║       GUARDIAN Encryption - Comprehensive Test Suite     ║
-╚══════════════════════════════════════════════════════════╝
-
-[TEST 1] Verify files are immutable... ✓ PASS
-[TEST 2] Try to DELETE encrypted file... ✓ PASS
-[TEST 3] Try to OVERWRITE encrypted file... ✓ PASS
-[TEST 4] Try to MODIFY with sed... ✓ PASS
-[TEST 5] Verify encrypted files EXECUTE... ✓ PASS
-[TEST 6] Verify encrypted files READABLE... ✓ PASS
-[TEST 7] Try sudo chattr -i BYPASS... ✓ PASS
-[TEST 8] Test guardian-request workflow... ✓ PASS
-[TEST 9] Test guardian-approve workflow... ✓ PASS
-[TEST 10] Edit file after approval... ✓ PASS
-[TEST 11] Re-lock and verify immutable... ✓ PASS
-[TEST 12] Test guardian-decrypt... ✓ PASS
-
-✅ ALL TESTS PASSED - GUARDIAN ENCRYPTION READY FOR PRODUCTION
-```
-
----
-
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| [GUARDIAN_FINAL.md](docs/GUARDIAN_FINAL.md) | Complete system documentation |
-| [GUARDIAN_NATURAL_LANGUAGE.md](docs/GUARDIAN_NATURAL_LANGUAGE.md) | Natural language approval guide |
-| [GUARDIAN_ENCRYPTION_PRODUCTION.md](docs/GUARDIAN_ENCRYPTION_PRODUCTION.md) | Encryption production docs |
-| [GUARDIAN_FILE_ACCESS_POLICY.md](docs/GUARDIAN_FILE_ACCESS_POLICY.md) | File access policy |
-| [GUARDIAN_SKILL_INTEGRATION.md](docs/GUARDIAN_SKILL_INTEGRATION.md) | Skill integration guide |
-
----
-
-## 🔧 Commands Reference
-
-### Guardian Firewall
+### Emergency
 
 ```bash
-guardian status              # Check protection status
-guardian request <file> '<reason>'  # Request file edit
-guardian approve <id>        # Approve request
-guardian pending             # View pending requests
-guardian-temp-unlock <file>  # Temporarily unlock
-guardian-log                 # View approval history
+guardian-emergency unlock-all         # Unlock everything
+guardian-emergency recover-user-files # Unlock user configs
+guardian-emergency disable            # Disable Guardian
+guardian-emergency status             # Check status
 ```
 
-### Guardian Encryption
+---
+
+## Migration from v1.x
+
+If you have v1.x installed:
 
 ```bash
-guardian-encrypt.sh <dir>    # Encrypt a codebase
-guardian-decrypt.sh <dir>    # Remove encryption
-guardian-scan-keys.sh <dir>  # Scan for API keys
+# 1. Run emergency unlock
+guardian-emergency unlock-all
+
+# 2. Check if user files are locked
+guardian-emergency status
+
+# 3. If locked, recover them
+guardian-emergency recover-user-files
+
+# 4. Install v2.0
+./install.sh
 ```
 
-### Guardian Angel
+---
+
+## Testing
+
+After installation, verify user sovereignty:
 
 ```bash
-guardian-angel start <dir>   # Start monitoring
-guardian-angel scan <name>   # Scan for vulnerabilities
-guardian-angel report <name> # Generate report
-guardian-angel stop <name>   # Stop monitoring
-guardian-angel list          # List monitored builds
+# These should ALL work without any approval:
+echo "# test" >> ~/.bashrc
+echo "# test" >> ~/.profile
+
+# This should be BLOCKED:
+echo "test" >> ~/.qwen/settings.json
+# Expected: Permission denied or Guardian block
 ```
 
 ---
 
-## 🛡️ Security Model
+## Files in This Release
 
-### What GUARDIAN Protects Against
-
-| Threat | Protection |
-|--------|------------|
-| Accidental agent edits | ✅ Approval required |
-| Silent config drift | ✅ Immutable files |
-| API key exposure | ✅ Pre-encryption scan |
-| Unauthorized changes | ✅ Logged audit trail |
-| Bypass attempts | ✅ Multiple layers |
-
-### What GUARDIAN Does NOT Protect Against
-
-| Threat | Why | Mitigation |
-|--------|-----|------------|
-| Physical access | You own the machine | Physical security |
-| You removing it | Your choice | Don't remove it |
-| Social engineering | You approve requests | Review carefully |
+| File | Purpose |
+|------|---------|
+| `guardian` | Main guardian script |
+| `install.sh` | Safe installer |
+| `bash_hooks.sh` | Shell hooks |
+| `GUARDIAN_RECOVERY_INSTRUCTIONS.txt` | Emergency docs |
 
 ---
 
-## 🤝 Contributing
+## What Changed from v1.x
 
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `./guardian-test.sh`
-5. Submit a PR
+### Removed from Protected List
+- `~/.bashrc`
+- `~/.bash_aliases`
+- `~/.profile`
 
----
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Credits
-
-**Built by:** Qwen Code + DeepSeek R1 + User Collaboration  
-**Philosophy:** Protection through transparency + multiple layers  
-**Inspiration:** "Don't trust, enforce"
+### Added
+- User sovereignty check in `is_protected_file()`
+- `guardian-emergency` command in `/usr/bin/`
+- Recovery instructions file
+- Installation confirmation prompt
+- Pre-install user file unlock
 
 ---
 
-## 📞 Support
+## Reporting Issues
 
-- **Issues:** [GitHub Issues](https://github.com/yourusername/guardian-firewall/issues)
-- **Documentation:** [docs/](docs/)
-- **Quick Start:** See above
+If Guardian ever locks you out of YOUR OWN files (not agent files):
 
----
+1. Run `guardian-emergency status` to check
+2. Run `guardian-emergency recover-user-files` to fix
+3. Report the issue with:
+   - What file was locked
+   - What command you ran
+   - Output of `guardian-emergency status`
 
-**Status:** ✅ Production Ready  
-**Tests:** 12/12 PASSED  
-**Version:** 1.0.0
+This is a bug - user sovereignty violations should never happen.
