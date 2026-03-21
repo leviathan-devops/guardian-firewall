@@ -2,11 +2,15 @@
 
 **The Unbreakable Protection System for AI Agent Builds**
 
+![Status](https://img.shields.io/badge/status-beta-yellow.svg)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourusername/guardian-firewall/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-12/12%20passed-brightgreen.svg)](docs/TEST_RESULTS.md)
 
 ---
+
+> ⚠️ **SECURITY NOTICE**: This software has not undergone independent security auditing.
+> Use at your own risk for personal/internal use. See [SECURITY.md](SECURITY.md) for details.
 
 ## 🚀 Quick Start
 
