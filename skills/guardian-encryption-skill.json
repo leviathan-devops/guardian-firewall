@@ -1,0 +1,40 @@
+{
+  "name": "guardian-encryption-skill",
+  "version": "1.0.0",
+  "description": "Apply GUARDIAN encryption to completed codebases - makes code immutable and enforces execution",
+  "trigger_phrases": [
+    "setup guardian encryption",
+    "enable guardian encryption",
+    "apply guardian protection",
+    "encrypt this codebase",
+    "guardian encrypt"
+  ],
+  "instructions": "When the user asks to set up Guardian Encryption, follow these steps:\n\n1. EXPLAIN what Guardian Encryption does:\n   - Makes code IMMUTABLE (cannot be modified without approval)\n   - Enforces code execution (cannot be ignored by agents)\n   - Requires natural language approval for changes\n   - Scans for API keys before encrypting\n\n2. ASK which directory to encrypt:\n   - Default: current working directory\n   - Or ask: 'Which codebase should I encrypt?'\n\n3. RUN the encryption:\n   ```bash\n   guardian-encrypt.sh <directory>\n   ```\n\n4. VERIFY encryption was applied:\n   - Check files have immutable flag\n   - Confirm GUARDIAN_ENCRYPTED.md was created\n   - Show user the protection status\n\n5. DOCUMENT what was encrypted:\n   - List all protected files\n   - Explain how to request changes\n   - Show approval workflow\n\nIMPORTANT:\n- Only encrypt COMPLETED codebases (not WIP)\n- API key scanner runs automatically\n- If keys found, encryption is BLOCKED until fixed\n- Encrypted code CANNOT be modified without human approval",
+  "commands": [
+    {
+      "name": "guardian-encrypt",
+      "command": "guardian-encrypt.sh",
+      "description": "Apply GUARDIAN encryption to a codebase"
+    },
+    {
+      "name": "guardian-scan-keys",
+      "command": "guardian-scan-keys.sh",
+      "description": "Scan for exposed API keys"
+    },
+    {
+      "name": "guardian-status",
+      "command": "guardian status",
+      "description": "Check protection status"
+    }
+  ],
+  "files": [
+    "src/guardian-encrypt.sh",
+    "src/guardian-scan-keys.sh",
+    "src/guardian-decrypt.sh"
+  ],
+  "permissions": {
+    "execute_commands": true,
+    "modify_files": true,
+    "require_approval": true
+  }
+}

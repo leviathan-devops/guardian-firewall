@@ -1,0 +1,52 @@
+#!/bin/bash
+# Guardian Sudo Wrapper - Intercepts dangerous commands
+# Place this BEFORE /usr/bin/sudo in PATH
+
+GUARDIAN_DIR="$HOME/.guardrails"
+APPROVAL_QUEUE="$GUARDIAN_DIR/approval_queue"
+APPROVAL_LOG="$GUARDIAN_DIR/approval_log"
+
+# Get the command arguments
+COMMAND="$*"
+
+# Dangerous patterns that require guardian approval
+DANGEROUS_PATTERNS=(
+    "chattr[[:space:]]+-[a-zA-Z]*i"
+    "chattr[[:space:]]+-I"
+    "rm[[:space:]]+-rf.*\.qwen"
+    "rm[[:space:]]+-rf.*\.guardrails"
+    "rm.*settings\.json"
+    "rm.*config\.json"
+    "rm.*guardian"
+    "echo.*>.*settings\.json"
+    "cat.*>.*settings\.json"
+    "cp.*>.*settings\.json"
+    "tee.*settings\.json"
+    "mv.*settings\.json"
+    "chmod.*settings\.json"
+    "chown.*settings\.json"
+    "vi.*settings\.json"
+    "vim.*settings\.json"
+    "nano.*settings\.json"
+    "sed.*-i.*settings\.json"
+    "python.*settings\.json"
+    "python3.*settings\.json"
+)
+
+# Check for dangerous patterns
+for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+    if echo "$COMMAND" | grep -qE "$pattern"; then
+        echo "🚨 GUARDIAN: Dangerous command detected!"
+        echo "   Command: sudo $COMMAND"
+        echo ""
+        echo "   This command requires EXPLICIT user approval."
+        echo ""
+        echo "   Agents: Run 'guardian-request <file> <reason>'"
+        echo "   Users:  Run 'guardian-temp-unlock <file>'"
+        echo ""
+        exit 1
+    fi
+done
+
+# Not a dangerous command, pass through to real sudo
+exec /usr/bin/sudo "$@"

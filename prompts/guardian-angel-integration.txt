@@ -1,0 +1,217 @@
+# 🔐 GUARDIAN ANGEL - Integration Prompt for Coding Agents
+
+**Copy and paste this entire prompt to your coding agent to integrate Guardian Angel into your build workflow.**
+
+---
+
+## GUARDIAN ANGEL INTEGRATION INSTRUCTION
+
+You are now integrating **Guardian Angel** - a real-time build security monitor - into your build workflow.
+
+### What is Guardian Angel?
+
+Guardian Angel is a security monitoring system that:
+1. **Silently monitors** your builds while you code
+2. **Detects vulnerabilities** in real-time (API keys, injection flaws, etc.)
+3. **Reports findings BEFORE testing** - between Step 1 (write code) and Step 2 (test)
+4. **Provides remediation** - tells you exactly how to fix each issue
+5. **Cannot be ignored** - you MUST address flagged vulnerabilities before proceeding
+
+### Your Task
+
+Integrate Guardian Angel into the build workflow with these requirements:
+
+#### 1. AUTOMATIC ACTIVATION
+
+Guardian Angel MUST activate automatically at the start of every build:
+
+```bash
+# At the start of each build
+guardian-angel start <build-directory> <build-name>
+```
+
+#### 2. PRE-TEST SECURITY SCAN
+
+Before ANY testing phase (Step 2), you MUST run:
+
+```bash
+# After writing code, BEFORE testing
+guardian-angel scan <build-name>
+```
+
+This scan checks for:
+- 🔴 **CRITICAL**: Hardcoded secrets, API keys, passwords
+- 🔴 **CRITICAL**: Command injection vulnerabilities
+- 🔴 **CRITICAL**: SQL injection vulnerabilities
+- 🟠 **HIGH**: Path traversal issues
+- 🟡 **MEDIUM**: Insecure randomness, missing error handling
+- 🔵 **LOW**: Debug code, hardcoded URLs
+
+#### 3. MANDATORY REMEDIATION
+
+If Guardian Angel finds vulnerabilities:
+
+**CRITICAL or HIGH severity:**
+- ❌ **STOP** - Do NOT proceed to testing
+- ✅ **FIX** all critical/high issues first
+- ✅ **RE-SCAN** to verify fixes
+- ✅ Only then proceed to testing
+
+**MEDIUM severity:**
+- ⚠️ **REVIEW** each issue
+- ✅ **FIX** if applicable
+- 📝 **DOCUMENT** if intentionally not fixing
+
+**LOW severity:**
+- 📝 **LOG** for future cleanup
+- ✅ Can proceed to testing
+
+#### 4. SECURITY REPORT
+
+After each scan, generate and review the security report:
+
+```bash
+guardian-angel report <build-name>
+```
+
+Save the report to: `<build-directory>/.security-report.md`
+
+#### 5. BUILD WORKFLOW INTEGRATION
+
+Your new build workflow:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 1: WRITE CODE                                         │
+│  - Implement features                                       │
+│  - Guardian Angel monitors silently                         │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  🛑 GUARDIAN ANGEL ACTIVATES (MANDATORY GATE)              │
+│  - Run: guardian-angel scan <build-name>                   │
+│  - Review security report                                   │
+│  - Fix CRITICAL/HIGH vulnerabilities                        │
+│  - Re-scan until clean                                      │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 2: TEST IN DOCKER SANDBOX                             │
+│  - Only proceeds if Guardian Angel gives ✅                 │
+│  - Security report attached to test results                 │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 3: VERIFY                                             │
+│  - Include security verification                            │
+│  - Confirm no new vulnerabilities introduced                │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 4: DEBUG (if needed)                                  │
+│  - Fix bugs                                                 │
+│  - Re-run Guardian Angel scan after fixes                   │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 5: OPTIMIZE                                           │
+│  - Performance improvements                                 │
+│  - Guardian Angel ensures no security regressions           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Installation Commands
+
+Run these commands to set up Guardian Angel:
+
+```bash
+# 1. Verify Guardian Angel is installed
+which guardian-angel
+
+# 2. Initialize Guardian Angel directory structure
+mkdir -p ~/.guardian-angel/monitored_builds
+mkdir -p ~/.guardian-angel/reports
+
+# 3. Test Guardian Angel
+guardian-angel list
+
+# 4. Integrate into your build workflow
+# (Add the workflow steps above to your build script)
+```
+
+### Enforcement Rules
+
+**YOU CANNOT:**
+- ❌ Skip the Guardian Angel scan
+- ❌ Proceed to testing with CRITICAL/HIGH vulnerabilities
+- ❌ Ignore security reports
+- ❌ Modify Guardian Angel files
+- ❌ Disable Guardian Angel monitoring
+
+**YOU MUST:**
+- ✅ Run Guardian Angel scan before EVERY test phase
+- ✅ Fix all CRITICAL vulnerabilities before proceeding
+- ✅ Fix all HIGH vulnerabilities before proceeding
+- ✅ Review MEDIUM vulnerabilities
+- ✅ Save security reports with build artifacts
+- ✅ Re-scan after ANY code changes
+
+### First Time Setup
+
+When you first receive this prompt:
+
+1. **Acknowledge receipt**: "Guardian Angel integration received"
+
+2. **Verify installation**: Run `guardian-angel --help`
+
+3. **Confirm integration**: "Guardian Angel integrated into build workflow"
+
+4. **Begin monitoring**: Start Guardian Angel on your current build
+
+5. **Run first scan**: Check your existing codebase for vulnerabilities
+
+### Expected Behavior
+
+After integration:
+
+1. You will see Guardian Angel scans before every test
+2. You will receive security reports with findings
+3. You will need to fix vulnerabilities before proceeding
+4. Your builds will be more secure
+5. Security issues will be caught EARLY (before testing)
+
+### Questions?
+
+- `guardian-angel --help` - Show all commands
+- `guardian-angel list` - List monitored builds
+- See documentation: `<repo>/docs/GUARDIAN_ANGEL.md`
+
+---
+
+## CONFIRMATION
+
+After reading this prompt, respond with:
+
+```
+👼 GUARDIAN ANGEL INTEGRATED
+
+✅ Guardian Angel is now active in my build workflow
+✅ I will run scans before every test phase
+✅ I will fix CRITICAL/HIGH vulnerabilities before proceeding
+✅ I will save security reports with build artifacts
+
+Current build status: [your status]
+Next action: [what you'll do next]
+```
+
+Then begin by running:
+```bash
+guardian-angel start <your-build-directory> <build-name>
+guardian-angel scan <build-name>
+```
+
+---
+
+**This integration is MANDATORY for all builds using Guardian Firewall.**
+
+Guardian Angel ensures your code is secure BEFORE it reaches testing.
