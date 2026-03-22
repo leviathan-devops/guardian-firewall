@@ -269,9 +269,13 @@ class CodeScanner:
     def __init__(self):
         self.patterns = VulnerabilityPatterns.PATTERNS
     
-    def scan_file(self, file_path: Path, base_path: Path = None) -> List[Vulnerability]:
+    def scan_file(self, file_path, base_path=None) -> List[Vulnerability]:
         """Scan a single file for vulnerabilities"""
         vulnerabilities = []
+        
+        # Convert to Path if string
+        file_path = Path(file_path) if isinstance(file_path, str) else file_path
+        base_path = Path(base_path) if base_path and isinstance(base_path, str) else base_path
         
         # Skip non-code files
         if file_path.suffix not in self.CODE_EXTENSIONS:
