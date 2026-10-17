@@ -176,7 +176,7 @@ test_guardian_angel() {
     mkdir -p "$TEST_DIR/angel-test/src"
     cat > "$TEST_DIR/angel-test/src/app.py" << 'PYEOF'
 # Vulnerable code
-API_KEY = "sk-test123456789"
+API_KEY = "<REDACTED_SET_VIA_ENV>"
 
 def run_cmd(user_input):
     import os
