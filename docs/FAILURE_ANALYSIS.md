@@ -103,7 +103,7 @@ def test_real_time_monitoring():
     angel.start_monitoring("/test/build")
     
     # Create a file with a vulnerability
-    write_file("/test/build/exploit.py", "api_key = 'sk-1234567890abcdef'")
+    write_file("/test/build/exploit.py", "api_key = '<REDACTED_SET_VIA_ENV>'")
     
     # Wait for detection (should be automatic)
     time.sleep(2)
